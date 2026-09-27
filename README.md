@@ -9,6 +9,17 @@ game is original.
 > **Status: Phase 1 of 11 is done.** That covers the project setup, every config
 > module, and player data saving with session locking. See [Roadmap](#roadmap).
 
+## Quick try (no tools needed)
+
+1. Install [Roblox Studio](https://create.roblox.com/) and log in.
+2. Download the latest place file: on GitHub open **Actions**, click the most recent
+   green **CI** run, and download the **LastLight-place** artifact (a zip containing
+   `LastLight.rbxl`). Unzip it.
+3. Double-click `LastLight.rbxl`, or open it in Studio with **File → Open from File**.
+4. Press **Play**, then follow [Testing Phase 1 in Studio](#testing-phase-1-in-studio).
+
+The steps below set up live code sync, which you only need to edit the code.
+
 ## Requirements
 
 - [Roblox Studio](https://create.roblox.com/)
@@ -44,7 +55,8 @@ rojo serve
 ```
 
 In Studio, open a Baseplate, then go to **Plugins → Rojo → Connect** (the default
-address is `localhost:34872`). The code syncs live:
+address is `localhost:34872`). The code syncs live, along with a placeholder floor
+and spawn point in `Workspace`:
 
 | On disk       | In Studio                                |
 |---------------|------------------------------------------|

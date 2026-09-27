@@ -26,6 +26,12 @@ jobs:
           mkdir -p build
           rojo build default.project.json --output build/LastLight.rbxl
 
+      - name: Upload place file
+        uses: actions/upload-artifact@v4
+        with:
+          name: LastLight-place
+          path: build/LastLight.rbxl
+
       - name: Type check (luau-lsp, strict)
         run: bash scripts/analyze.sh
 
