@@ -196,7 +196,7 @@ local function build(screen: ScreenGui)
 		Name = "Panel",
 		AnchorPoint = Vector2.new(1, 0),
 		Position = UDim2.new(1, -8, 0, 44),
-		Size = UDim2.new(0.9, 0, 0.8, 0),
+		Size = UDim2.fromScale(0.9, 0.8),
 		BackgroundColor3 = Theme.Colors.Panel,
 		BackgroundTransparency = 0.05,
 		Visible = false,
