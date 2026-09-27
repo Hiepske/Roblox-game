@@ -27,6 +27,7 @@ local VendorConfig = require(Config.VendorConfig)
 local WeaponConfig = require(Config.WeaponConfig)
 local WeaponTypeConfig = require(Config.WeaponTypeConfig)
 local AssetIds = require(Config.AssetIds)
+local WorldConfig = require(Config.WorldConfig)
 
 local ConfigValidator = {}
 
@@ -63,6 +64,9 @@ local ITEM_SOURCES = {
 }
 
 local WEAPON_SLOTS = { Kinetic = true, Energy = true, Heavy = true }
+
+-- Boss mechanics implemented in src/server/Activities/BossMechanics.
+local BOSS_MECHANICS = { Standard = true, ImmuneAdds = true, EchoPlates = true }
 
 function ConfigValidator.Validate(): { string }
 	local problems: { string } = {}
@@ -478,7 +482,8 @@ function ConfigValidator.Validate(): { string }
 			report(`{where}: unlock requires unknown mission {activity.Unlock.Story}`)
 		end
 
-		local function checkObjectives(objectives: { ActivityConfig.ObjectiveDef }?, label: string)
+		-- `playable` enables the checks the runtime needs (maps, spawns, zones).
+		local function checkObjectives(objectives: { ActivityConfig.ObjectiveDef }?, label: string, playable: boolean)
 			for _, objective in listOf(objectives) do
 				if objective.Enemy and EnemyConfig.ById[objective.Enemy] == nil then
 					report(`{label}: objective references unknown enemy {objective.Enemy}`)
@@ -486,18 +491,74 @@ function ConfigValidator.Validate(): { string }
 				if objective.Faction and EnemyConfig.Factions[objective.Faction] == nil then
 					report(`{label}: objective references unknown faction {objective.Faction}`)
 				end
+				if objective.Mechanic and not BOSS_MECHANICS[objective.Mechanic] then
+					report(`{label}: unknown boss mechanic {objective.Mechanic}`)
+				end
+				if not playable then
+					continue
+				end
+				if objective.Kind == "Boss" and objective.Enemy == nil then
+					report(`{label}: Boss objectives need an Enemy`)
+				end
+				if (objective.Kind == "Travel" or objective.Kind == "Defend") and objective.Target == nil then
+					report(`{label}: {objective.Kind} objectives need a Target zone`)
+				end
+				if objective.Kind == "Defend" and (objective.Duration == nil or objective.Duration <= 0) then
+					report(`{label}: Defend objectives need a Duration`)
+				end
+				if objective.Kind == "Defeat" and #listOf(objective.Spawns) == 0 then
+					report(`{label}: Defeat objectives need Spawns`)
+				end
+				for _, spawn in listOf(objective.Spawns) do
+					for _, entry in spawn.Enemies do
+						if EnemyConfig.ById[entry.Id] == nil then
+							report(`{label}: spawn group {spawn.Group} has unknown enemy {entry.Id}`)
+						elseif EnemyConfig.ById[entry.Id].Dummy then
+							report(`{label}: spawn group {spawn.Group} spawns a range dummy`)
+						end
+					end
+				end
 			end
 		end
-		checkObjectives(activity.Objectives, where)
+		checkObjectives(activity.Objectives, where, activity.Playable == true)
 		for _, encounter in listOf(activity.Encounters) do
-			checkObjectives(encounter.Objectives, `{where}/{encounter.Id}`)
+			checkObjectives(encounter.Objectives, `{where}/{encounter.Id}`, encounter.Playable == true)
 			if encounter.Milestone and MilestoneConfig.ById[encounter.Milestone] == nil then
 				report(`{where}/{encounter.Id}: unknown milestone {encounter.Milestone}`)
 			end
+			if encounter.Playable and #listOf(encounter.Objectives) == 0 then
+				report(`{where}/{encounter.Id}: playable encounters need objectives`)
+			end
 		end
 		for _, difficulty in listOf(activity.Difficulties) do
-			if difficulty.Milestone and MilestoneConfig.ById[difficulty.Milestone] == nil then
-				report(`{where}/{difficulty.Id}: unknown milestone {difficulty.Milestone}`)
+			for _, milestoneId in listOf(difficulty.Milestones) do
+				if MilestoneConfig.ById[milestoneId] == nil then
+					report(`{where}/{difficulty.Id}: unknown milestone {milestoneId}`)
+				end
+			end
+		end
+		if activity.Playable then
+			if activity.Map == nil or table.find(WorldConfig.Maps, activity.Map) == nil then
+				report(`{where}: playable activities need a Map from WorldConfig.Maps`)
+			end
+			if #listOf(activity.Objectives) == 0 and #listOf(activity.Encounters) == 0 then
+				report(`{where}: playable activities need objectives or encounters`)
+			end
+			if activity.Rewards == nil then
+				report(`{where}: playable activities need Rewards`)
+			end
+		end
+		if activity.Rewards then
+			local drops = activity.Rewards.Drops
+			if drops.Min < 0 or drops.Min > drops.Max then
+				report(`{where}: Rewards.Drops must satisfy 0 <= Min <= Max`)
+			end
+			if activity.Rewards.Rarities then
+				for rarityId in activity.Rewards.Rarities do
+					if RarityConfig.Tiers[rarityId] == nil or rarityId == "Exotic" then
+						report(`{where}: Rewards.Rarities has bad rarity {rarityId}`)
+					end
+				end
 			end
 		end
 		for _, strikeId in listOf(activity.Rotation) do
@@ -517,6 +578,12 @@ function ConfigValidator.Validate(): { string }
 		report(`ActivityConfig: {strikeCount} strikes, want {ConfigValidator.ContentTargets.Strikes}`)
 	end
 
+	for modifierId, modifier in ActivityConfig.NightfallModifiers do
+		if modifier.Surge and ElementConfig.Elements[modifier.Surge] == nil then
+			report(`ActivityConfig.NightfallModifiers.{modifierId}: unknown surge element {modifier.Surge}`)
+		end
+	end
+
 	-- Loot, milestones, bounties, vendors --------------------------------------------------
 	for sourceId, source in LootConfig.Sources do
 		local totalWeight = 0
@@ -531,6 +598,42 @@ function ConfigValidator.Validate(): { string }
 		end
 		if not ITEM_SOURCES[source.PoolTag] then
 			report(`LootConfig {sourceId}: unknown pool tag {source.PoolTag}`)
+		end
+		-- Every rarity a source can roll needs at least one item to drop.
+		for rarityId, weight in source.RarityWeights do
+			if weight > 0 and RarityConfig.Tiers[rarityId] then
+				local found = false
+				for _, weapon in WeaponConfig.List do
+					local sources = weapon.Sources
+					if
+						weapon.Rarity == rarityId
+						and (
+							table.find(sources, source.PoolTag)
+							or (source.IncludeWorldPool and table.find(sources, "World"))
+						)
+					then
+						found = true
+						break
+					end
+				end
+				for _, armor in ArmorConfig.List do
+					local sources = armor.Sources
+					if
+						not found
+						and armor.Rarity == rarityId
+						and armor.ClassRestriction == nil
+						and (
+							table.find(sources, source.PoolTag)
+							or (source.IncludeWorldPool and table.find(sources, "World"))
+						)
+					then
+						found = true
+					end
+				end
+				if not found then
+					report(`LootConfig {sourceId}: nothing can drop at {rarityId} (add the source tag to some items)`)
+				end
+			end
 		end
 	end
 	for _, milestone in MilestoneConfig.List do

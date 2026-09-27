@@ -26,9 +26,11 @@ local Actions = {
 	"WeaponHeavy",
 	"CycleWeapon",
 	"CharacterScreen",
+	"CharacterScreenAlt",
 	"StarChart",
 	"Emote",
 	"Pause",
+	"DevPanel",
 }
 
 local Keyboard: { [string]: string } = {
@@ -46,11 +48,13 @@ local Keyboard: { [string]: string } = {
 	WeaponKinetic = "One",
 	WeaponEnergy = "Two",
 	WeaponHeavy = "Three",
-	CycleWeapon = "Tab",
 	CharacterScreen = "I",
+	CharacterScreenAlt = "Tab",
 	StarChart = "M",
 	Emote = "G",
 	Pause = "P",
+	-- Developer panel toggle.
+	DevPanel = "F2",
 }
 
 -- Shared buttons (Reload/Interact, Crouch/ClassAbility) are split by tap vs

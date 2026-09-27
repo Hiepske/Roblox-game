@@ -53,6 +53,9 @@ export type WeaponTypeDef = {
 	BaseStats: { [string]: number },
 	Rpm: number,
 	Magazine: number,
+	ReloadTime: number,
+	SwapTime: number,
+	MaxRange: number,
 	-- Reserve capacity for Special/Heavy ammo (Primary reserves are infinite).
 	Reserves: number?,
 	BurstCount: number?,

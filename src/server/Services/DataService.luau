@@ -147,6 +147,7 @@ local function prepareData(profile: ProfileStore.Profile): (ProfileData?, string
 		if not data.Flags.StarterLoadoutGranted then
 			ProfileTemplate.GrantStarterLoadout(data, now, newUid, Random.new())
 		end
+		ProfileTemplate.UpgradeStarterWeapons(data, now, newUid, Random.new())
 	end
 
 	Resets.Apply(data, now, GameConfig.Resets)

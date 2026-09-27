@@ -38,6 +38,12 @@ local AssetIds = {
 			KillConfirm = 0,
 			ShieldBreak = 0,
 			PlayerHurt = 0,
+			EnemyFire = 0,
+			EnemyMelee = 0,
+			Explosion = 0,
+			AmmoPickup = 0,
+			Death = 0,
+			Revive = 0,
 		},
 		UI = {
 			Click = 0,
@@ -62,6 +68,12 @@ local AssetIds = {
 		Rarity = { Rare = 0, Epic = 0, Legendary = 0, Exotic = 0 },
 		PowerIcon = 0,
 		Crosshair = 0,
+	},
+	-- Roblox's own default character animations (public, owned by Roblox, not
+	-- placeholders). Used for enemy walk/idle and the weapon hold pose.
+	Animations = {
+		R15 = { Idle = 507766666, Walk = 507777826, Run = 507767714, HoldWeapon = 507768375 },
+		R6 = { Idle = 180435571, Walk = 180426354, Run = 180426354, HoldWeapon = 182393478 },
 	},
 	-- Place ids for TeleportService (reserved servers). 0 = not published yet;
 	-- ActivityService (Phase 5) runs activities in the current place instead.
@@ -97,6 +109,7 @@ return table.freeze({
 	Sounds = Frozen.Sounds,
 	Images = Frozen.Images,
 	Places = Frozen.Places,
+	Animations = Frozen.Animations,
 	Get = Get,
 	IsPlaceholder = IsPlaceholder,
 })

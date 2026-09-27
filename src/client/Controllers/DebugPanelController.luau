@@ -26,6 +26,7 @@ local TimeUtil = require(Shared:WaitForChild("Util"):WaitForChild("TimeUtil"))
 
 local ClientNet = require(script.Parent.Parent.Net.ClientNet)
 local Theme = require(script.Parent.Parent.UI.Theme)
+local UIState = require(script.Parent.Parent.UI.UIState)
 local DataController = require(script.Parent.DataController)
 
 local DebugPanelController = {}
@@ -342,10 +343,19 @@ local function build(screen: ScreenGui)
 
 	local function setVisible(visible: boolean)
 		frame.Visible = visible
+		-- Frees the mouse from the shooter camera while the panel is open.
 		if visible then
+			UIState.OpenMenu("DevPanel")
 			refresh()
+		else
+			UIState.CloseMenu("DevPanel")
 		end
 	end
+	UIState.MenuChanged:Connect(function(name: string?)
+		if name ~= "DevPanel" and frame.Visible then
+			frame.Visible = false
+		end
+	end)
 
 	toggle.Activated:Connect(function()
 		setVisible(not frame.Visible)
@@ -356,7 +366,7 @@ local function build(screen: ScreenGui)
 		end
 	end)
 
-	setVisible(true)
+	setVisible(false)
 end
 
 function DebugPanelController.Init()

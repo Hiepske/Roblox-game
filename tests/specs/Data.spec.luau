@@ -91,6 +91,39 @@ describe("ProfileTemplate", function()
 		ProfileTemplate.Sanitize(data)
 		expect(data.Equipped.Helmet).toBeNil()
 	end)
+
+	it("gives old saves the new starter hand cannon once, equipped over the old starter", function()
+		local data = newProfile()
+		-- Simulate a Phase 1 save: Tinder-9 pulse rifle as the Energy starter.
+		local energy = data.Items[data.Equipped.Energy]
+		energy.DefId = "W_TINDER_NINE"
+		energy.Power = 352
+		data.Flags.StarterWeaponsV2 = nil
+		ProfileTemplate.UpgradeStarterWeapons(data, NOW, uid, VirtualGame.Random.new(2))
+		local equipped = data.Items[data.Equipped.Energy]
+		expect(equipped.DefId).toBe("W_LAST_EMBER")
+		expect(equipped.Power).toBe(352)
+		expect(data.Items[energy.Uid]).toBe(energy) -- old weapon kept
+		local count = 0
+		for _ in data.Items do
+			count += 1
+		end
+		ProfileTemplate.UpgradeStarterWeapons(data, NOW, uid, VirtualGame.Random.new(3))
+		local after = 0
+		for _ in data.Items do
+			after += 1
+		end
+		expect(after).toBe(count)
+	end)
+
+	it("doesn't replace a non-starter weapon the player equipped", function()
+		local data = newProfile()
+		local energy = data.Items[data.Equipped.Energy]
+		energy.DefId = "W_HALCYON_VERDICT"
+		data.Flags.StarterWeaponsV2 = nil
+		ProfileTemplate.UpgradeStarterWeapons(data, NOW, uid, VirtualGame.Random.new(2))
+		expect(data.Equipped.Energy).toBe(energy.Uid)
+	end)
 end)
 
 describe("Migrations", function()

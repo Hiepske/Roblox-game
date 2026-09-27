@@ -103,6 +103,44 @@ function ProfileTemplate.GrantStarterLoadout(data: ProfileData, now: number, mak
 	data.Flags.StarterLoadoutGranted = true
 end
 
+-- Saves from before a starter weapon changed (Phase 1 had a pulse rifle in
+-- the Energy slot) get any starter weapon they're missing, equipped if the
+-- slot still holds an old starter item. Runs once per save (Flags).
+function ProfileTemplate.UpgradeStarterWeapons(data: ProfileData, now: number, makeUid: () -> string, rng: Random)
+	if data.Flags.StarterWeaponsV2 then
+		return
+	end
+	data.Flags.StarterWeaponsV2 = true
+	for _, slot in PowerConfig.WeaponSlots do
+		local defId = GameConfig.NewPlayer.StarterLoadout[slot]
+		local owned = false
+		for _, item in data.Items do
+			if item.DefId == defId then
+				owned = true
+				break
+			end
+		end
+		if defId and not owned then
+			local equippedUid = data.Equipped[slot]
+			local equipped = if equippedUid then data.Items[equippedUid] else nil
+			local power = if equipped
+				then math.max(equipped.Power, PowerConfig.StartingPower)
+				else PowerConfig.StartingPower
+			local item = ItemRoller.Roll(defId, power, rng, makeUid(), now, "Base")
+			if item then
+				data.Items[item.Uid] = item
+				local equippedEntry = if equipped then ItemCatalog.Get(equipped.DefId) else nil
+				local wasStarter = equippedEntry ~= nil
+					and equippedEntry.Weapon ~= nil
+					and table.find(equippedEntry.Weapon.Sources, "Starter") ~= nil
+				if equipped == nil or wasStarter then
+					data.Equipped[slot] = item.Uid
+				end
+			end
+		end
+	end
+end
+
 -- A brand-new save with starting currencies and the starter loadout equipped.
 function ProfileTemplate.CreateNew(now: number, makeUid: () -> string, rng: Random): ProfileData
 	local data = TableUtil.DeepCopy(ProfileTemplate.Template)
@@ -111,6 +149,7 @@ function ProfileTemplate.CreateNew(now: number, makeUid: () -> string, rng: Rand
 		data.Currencies[currency] = amount
 	end
 	ProfileTemplate.GrantStarterLoadout(data, now, makeUid, rng)
+	data.Flags.StarterWeaponsV2 = true
 	return data
 end
 

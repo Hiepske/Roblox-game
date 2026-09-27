@@ -17,6 +17,10 @@
       "StarterPlayerScripts": {
         "$className": "StarterPlayerScripts",
         "$path": "src/client"
+      },
+      "StarterCharacterScripts": {
+        "$className": "StarterCharacterScripts",
+        "$path": "src/character"
       }
     },
     "StarterGui": {
@@ -27,98 +31,30 @@
       "$className": "Workspace",
       "$properties": {
         "StreamingEnabled": true
-      },
-      "Baseplate": {
-        "$className": "Part",
-        "$properties": {
-          "Anchored": true,
-          "Locked": true,
-          "Size": [
-            512,
-            16,
-            512
-          ],
-          "CFrame": {
-            "CFrame": {
-              "position": [
-                0,
-                -8,
-                0
-              ],
-              "orientation": [
-                [
-                  1,
-                  0,
-                  0
-                ],
-                [
-                  0,
-                  1,
-                  0
-                ],
-                [
-                  0,
-                  0,
-                  1
-                ]
-              ]
-            }
-          },
-          "Color": [
-            0.16,
-            0.18,
-            0.22
-          ],
-          "Material": "SmoothPlastic",
-          "TopSurface": "Smooth",
-          "BottomSurface": "Smooth"
-        }
-      },
-      "SpawnLocation": {
-        "$className": "SpawnLocation",
-        "$properties": {
-          "Anchored": true,
-          "Size": [
-            12,
-            1,
-            12
-          ],
-          "CFrame": {
-            "CFrame": {
-              "position": [
-                0,
-                0.5,
-                0
-              ],
-              "orientation": [
-                [
-                  1,
-                  0,
-                  0
-                ],
-                [
-                  0,
-                  1,
-                  0
-                ],
-                [
-                  0,
-                  0,
-                  1
-                ]
-              ]
-            }
-          },
-          "Color": [
-            0.43,
-            0.86,
-            1.0
-          ],
-          "Material": "Neon",
-          "Duration": 0,
-          "TopSurface": "Smooth",
-          "BottomSurface": "Smooth"
-        }
+      }
+    },
+    "ServerStorage": {
+      "$className": "ServerStorage",
+      "Activities": {
+        "$className": "Folder"
+      }
+    },
+    "Players": {
+      "$className": "Players",
+      "$properties": {
+        "CharacterAutoLoads": false
+      }
+    },
+    "Lighting": {
+      "$className": "Lighting",
+      "$properties": {
+        "Technology": "Future"
+      }
+    },
+    "TextChatService": {
+      "$className": "TextChatService",
+      "$properties": {
+        "ChatVersion": "TextChatService"
       }
     }
   }

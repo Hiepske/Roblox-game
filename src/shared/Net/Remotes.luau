@@ -42,12 +42,56 @@ local Definitions: { [string]: RemoteDef } = {
 	Notify = { Kind = "Event", Direction = "ToClient" },
 
 	-- Developer tools. The server ignores these unless the player has debug
-	-- access (Studio, or listed in GameConfig.Debug.AdminUserIds).
+	-- access (Studio, the game owner, or GameConfig.Debug.AdminUserIds).
 	DebugCommand = {
 		Kind = "Event",
 		Direction = "ToServer",
 		RateLimit = { Rate = 4, Burst = 8 },
 	},
+
+	-- Weapons (client intents; the server validates everything) ---------------
+	-- (slot, aimPoint: Vector3, shotId: number)
+	WeaponFire = { Kind = "Event", Direction = "ToServer", RateLimit = { Rate = 25, Burst = 40 } },
+	-- (slot)
+	WeaponReload = { Kind = "Event", Direction = "ToServer", RateLimit = { Rate = 4, Burst = 8 } },
+	-- (slot)
+	WeaponSwitch = { Kind = "Event", Direction = "ToServer", RateLimit = { Rate = 8, Burst = 16 } },
+	-- Server -> owner: magazines, reserves, active slot.
+	WeaponState = { Kind = "Event", Direction = "ToClient" },
+
+	-- Combat feedback and effects ---------------------------------------------------
+	-- Server -> shooter: (position, amount, isPrecision, flags)
+	CombatFeedback = { Kind = "Unreliable", Direction = "ToClient" },
+	-- Server -> other clients: someone else's shot (origin, hitPosition, color)
+	ShotEffect = { Kind = "Unreliable", Direction = "ToClient" },
+	-- Server -> all: (id, origin, velocity, style)
+	ProjectileSpawned = { Kind = "Event", Direction = "ToClient" },
+	-- Server -> all: (id, position, exploded, radius)
+	ProjectileEnded = { Kind = "Event", Direction = "ToClient" },
+	-- Server -> owner: alive/dead, respawn timer, revive state
+	PlayerStatus = { Kind = "Event", Direction = "ToClient" },
+
+	-- Activities --------------------------------------------------------------------
+	-- Server -> players in an activity: objective tracker, timers, boss bar (nil in the hub)
+	ActivityState = { Kind = "Event", Direction = "ToClient" },
+	-- (activityId, difficultyId?) -> (ok, message)
+	DirectorLaunch = { Kind = "Function", Direction = "ToServer", RateLimit = { Rate = 1, Burst = 3 } },
+	-- () -> list of running activities with room to join
+	DirectorQuery = { Kind = "Function", Direction = "ToServer", RateLimit = { Rate = 1, Burst = 4 } },
+	-- (instanceId) -> (ok, message)
+	DirectorJoin = { Kind = "Function", Direction = "ToServer", RateLimit = { Rate = 1, Burst = 3 } },
+	-- Leave the current activity and return to the hub.
+	LeaveActivity = { Kind = "Event", Direction = "ToServer", RateLimit = { Rate = 1, Burst = 2 } },
+	-- Server -> player: open the Director (terminal clicked)
+	OpenDirector = { Kind = "Event", Direction = "ToClient" },
+
+	-- Loot and inventory -------------------------------------------------------------
+	-- Server -> player: (items, context) for toasts and the end-of-activity screen
+	LootAwarded = { Kind = "Event", Direction = "ToClient" },
+	-- (uid) -> (ok, message)
+	EquipItem = { Kind = "Function", Direction = "ToServer", RateLimit = { Rate = 5, Burst = 10 } },
+	-- (uid) -> (ok, message)
+	DismantleItem = { Kind = "Function", Direction = "ToServer", RateLimit = { Rate = 5, Burst = 10 } },
 }
 
 Remotes.Definitions = Definitions

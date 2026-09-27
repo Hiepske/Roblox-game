@@ -30,6 +30,15 @@ type Service = { Init: (() -> ())?, Start: (() -> ())? }
 local order: { { Name: string, Module: Service } } = {
 	{ Name = "NetService", Module = require(Services.NetService) :: any },
 	{ Name = "DataService", Module = require(Services.DataService) :: any },
+	{ Name = "WorldService", Module = require(Services.WorldService) :: any },
+	{ Name = "CharacterService", Module = require(Services.CharacterService) :: any },
+	{ Name = "ProjectileService", Module = require(Services.ProjectileService) :: any },
+	{ Name = "EnemyService", Module = require(Services.EnemyService) :: any },
+	{ Name = "CombatService", Module = require(Services.CombatService) :: any },
+	{ Name = "WeaponService", Module = require(Services.WeaponService) :: any },
+	{ Name = "LootService", Module = require(Services.LootService) :: any },
+	{ Name = "InventoryService", Module = require(Services.InventoryService) :: any },
+	{ Name = "ActivityService", Module = require(Services.ActivityService) :: any },
 	{ Name = "DebugService", Module = require(Services.DebugService) :: any },
 }
 

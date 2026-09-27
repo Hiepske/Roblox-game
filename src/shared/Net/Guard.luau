@@ -100,6 +100,23 @@ Guard.Uid = function(value: any): (boolean, string?)
 	return true, nil
 end :: Check
 
+-- A finite Vector3 within `maxMagnitude` studs of the origin.
+function Guard.Vector3(maxMagnitude: number): Check
+	return function(value: any)
+		if typeof(value) ~= "Vector3" then
+			return false, `expected Vector3, got {typeof(value)}`
+		end
+		local v = value :: Vector3
+		if not (isFinite(v.X) and isFinite(v.Y) and isFinite(v.Z)) then
+			return false, "Vector3 has NaN or infinite components"
+		end
+		if v.Magnitude > maxMagnitude then
+			return false, "Vector3 is too far away"
+		end
+		return true, nil
+	end
+end
+
 -- Validates a packed argument list against `checks`. Extra arguments beyond
 -- the declared checks are rejected too.
 function Guard.Args(checks: { Check }, args: { n: number, [number]: any }): (boolean, string?)

@@ -11,6 +11,15 @@ type Controller = { Init: (() -> ())?, Start: (() -> ())? }
 
 local order: { Controller } = {
 	require(Controllers:WaitForChild("DataController")) :: any,
+	require(Controllers:WaitForChild("ActivityController")) :: any,
+	require(Controllers:WaitForChild("CameraController")) :: any,
+	require(Controllers:WaitForChild("EffectsController")) :: any,
+	require(Controllers:WaitForChild("WeaponController")) :: any,
+	require(Controllers:WaitForChild("HudController")) :: any,
+	require(Controllers:WaitForChild("DirectorController")) :: any,
+	require(Controllers:WaitForChild("CharacterScreenController")) :: any,
+	require(Controllers:WaitForChild("LootController")) :: any,
+	require(Controllers:WaitForChild("DevCommandController")) :: any,
 	require(Controllers:WaitForChild("DebugPanelController")) :: any,
 }
 

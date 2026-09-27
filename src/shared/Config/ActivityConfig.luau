@@ -5,22 +5,36 @@
 
 	Unlock rules: an activity is launchable when every listed requirement is
 	met (Story = mission id completed, Power = minimum character power).
+	Only activities marked Playable have a map and appear in the Director.
 
-	Objectives are an ordered script the mission runner (Phase 6) walks
-	through. Kinds:
-	  Travel    reach the map marker named Target
-	  Defeat    defeat Count enemies (optionally of Faction / Enemy)
-	  Defend    hold the zone named Target for Duration seconds
-	  Carry     bring Item from its spawn to Target
-	  Interact  use the object named Target
-	  Survive   stay alive for Duration seconds of waves
-	  Boss      defeat the boss Enemy (see EnemyConfig for its mechanics)
+	Objectives are an ordered script ActivityService walks through. Kinds:
+	  Travel    reach the zone marker named Target
+	  Defeat    defeat every enemy spawned from Spawns
+	  Defend    keep a player inside zone Target for Duration seconds while
+	            waves from Spawns arrive every WaveInterval seconds
+	  Carry     bring Item from its spawn to Target            (not built yet)
+	  Interact  use the object named Target                    (not built yet)
+	  Survive   stay alive for Duration seconds of waves       (not built yet)
+	  Boss      defeat Enemy, spawned at marker Target, running the named
+	            Mechanic ("Standard", "ImmuneAdds", "EchoPlates"); adds spawn
+	            at the AddsGroup markers
+
+	Spawns: each entry spawns its Enemies at the map markers named
+	Spawn_<Group>_<n>, optionally Delay seconds after the objective starts.
+	When an objective completes, the respawn checkpoint moves to marker
+	Checkpoint and the part named Door opens.
 
 	Place is a key into AssetIds.Places (the reserved-server place to teleport to).
 ]]
 
 local TableUtil = require(script.Parent.Parent.Util.TableUtil)
 local Types = require(script.Parent.Parent.Types)
+
+export type SpawnDef = {
+	Group: string,
+	Enemies: { { Id: string, Count: number } },
+	Delay: number?,
+}
 
 export type ObjectiveDef = {
 	Kind: "Travel" | "Defeat" | "Defend" | "Carry" | "Interact" | "Survive" | "Boss",
@@ -31,6 +45,13 @@ export type ObjectiveDef = {
 	Enemy: string?,
 	Faction: string?,
 	Item: string?,
+	Spawns: { SpawnDef }?,
+	WaveInterval: number?,
+	MaxAlive: number?,
+	Mechanic: string?,
+	AddsGroup: string?,
+	Checkpoint: string?,
+	Door: string?,
 }
 
 export type EncounterDef = {
@@ -41,6 +62,8 @@ export type EncounterDef = {
 	Objectives: { ObjectiveDef },
 	-- Weekly reward source id (MilestoneConfig) granted on first clear each week.
 	Milestone: string?,
+	-- Encounters without a built map yet are listed but skipped.
+	Playable: boolean?,
 }
 
 export type DifficultyDef = {
@@ -48,7 +71,33 @@ export type DifficultyDef = {
 	Name: string,
 	RecommendedPower: number,
 	ModifierCount: number,
-	Milestone: string?,
+	-- Weekly reward sources claimed on completion at this difficulty.
+	Milestones: { string }?,
+	-- Extra end-of-activity drops at this difficulty.
+	BonusDrops: number?,
+}
+
+export type RewardDef = {
+	-- End-of-activity drops rolled from the activity's LootSource.
+	Drops: { Min: number, Max: number },
+	-- Overrides the LootSource rarity weights (e.g. story: Rare/Epic only).
+	Rarities: { [string]: number }?,
+	-- Chance of an extra drop from the LootSource's exclusive pool (raid gear).
+	ExclusiveChance: number?,
+	-- Extra drops given when every weekly milestone was already claimed.
+	FallbackDrops: number?,
+}
+
+export type ModifierDef = {
+	Name: string,
+	Description: string,
+	EnemyHealth: number?,
+	EnemyDamage: number?,
+	AmmoDrops: number?,
+	Surge: string?,
+	SurgeBonus: number?,
+	ExtraShields: number?,
+	MatchGame: boolean?,
 }
 
 export type ActivityDef = {
@@ -76,6 +125,12 @@ export type ActivityDef = {
 	PublicEvents: { { Id: string, Name: string, Description: string } }?,
 	-- Strikes the Nightfall rotates through.
 	Rotation: { string }?,
+	-- Map model name (WorldConfig.Maps); activities without one aren't playable yet.
+	Map: string?,
+	Playable: boolean?,
+	Rewards: RewardDef?,
+	-- Show a run timer and score on the HUD (hardened strike).
+	Scored: boolean?,
 }
 
 export type DestinationDef = {
@@ -125,7 +180,7 @@ local List: { ActivityDef } = {
 		Name = "First Light",
 		Type = "Story",
 		Destination = "Veyra",
-		Description = "A distress beacon flickers on Veyra. Find it before the Rustborn do.",
+		Description = "A distress beacon flickers on Veyra. Fight through a ruined outpost, hack its terminal and bring down the Rustborn captain who holds it.",
 		RecommendedPower = 350,
 		MinPlayers = 1,
 		MaxPlayers = 3,
@@ -134,11 +189,52 @@ local List: { ActivityDef } = {
 		Factions = { "Rustborn" },
 		Place = "Mission",
 		Order = 1,
+		Map = "FirstLight",
+		Playable = true,
+		Rewards = { Drops = { Min = 2, Max = 3 }, Rarities = { Rare = 60, Epic = 40 } },
 		Objectives = {
-			{ Kind = "Travel", Text = "Reach the crash site", Target = "CrashSite" },
-			{ Kind = "Defeat", Text = "Clear the scavengers", Count = 15, Faction = "Rustborn" },
-			{ Kind = "Interact", Text = "Reactivate the beacon", Target = "Beacon" },
-			{ Kind = "Boss", Text = "Defeat the Scrap Baron", Enemy = "RUST_SCRAP_BARON" },
+			{ Kind = "Travel", Text = "Reach the outpost", Target = "Zone_Outpost", Checkpoint = "Checkpoint_Outpost" },
+			{
+				Kind = "Defeat",
+				Text = "Clear the courtyard",
+				Spawns = {
+					{
+						Group = "Courtyard",
+						Enemies = { { Id = "RUST_GUNNER", Count = 6 }, { Id = "RUST_SCRAPPER", Count = 4 } },
+					},
+					{
+						Group = "CourtyardBack",
+						Delay = 8,
+						Enemies = { { Id = "RUST_BREAKER", Count = 1 }, { Id = "RUST_GUNNER", Count = 1 } },
+					},
+				},
+				Checkpoint = "Checkpoint_Terminal",
+				Door = "Door_Terminal",
+			},
+			{
+				Kind = "Defend",
+				Text = "Hack the terminal",
+				Target = "Zone_Terminal",
+				Duration = 20,
+				WaveInterval = 7,
+				MaxAlive = 8,
+				Spawns = {
+					{
+						Group = "Terminal",
+						Enemies = { { Id = "RUST_SCRAPPER", Count = 2 }, { Id = "RUST_GUNNER", Count = 2 } },
+					},
+				},
+				Checkpoint = "Checkpoint_Boss",
+				Door = "Door_Boss",
+			},
+			{
+				Kind = "Boss",
+				Text = "Defeat the Captain: Vulk, the Scrap Baron",
+				Enemy = "RUST_SCRAP_BARON",
+				Target = "BossSpawn",
+				Mechanic = "Standard",
+				AddsGroup = "BossAdds",
+			},
 		} :: { ObjectiveDef },
 	},
 	{
@@ -448,32 +544,114 @@ local List: { ActivityDef } = {
 	-- Nightfall ------------------------------------------------------------------------
 	{
 		Id = "NIGHTFALL",
-		Name = "The Long Dark",
+		Name = "Hollow Spire",
 		Type = "Nightfall",
-		Destination = "HavenSpire",
-		Description = "A hardened strike with rotating modifiers. The higher the difficulty, the better the reward.",
-		RecommendedPower = 480,
+		Destination = "Veyra",
+		Description = "A hardened strike into Kaldrek's fortress. Three arenas, a tyrant at the top, and two weekly modifiers stacked against you. Beat the clock for a higher score.",
+		RecommendedPower = 450,
 		MinPlayers = 1,
 		MaxPlayers = 3,
 		PowerEnabled = true,
 		PowerDeltaCap = 0,
 		LootSource = "Nightfall",
-		Unlock = { Story = "STORY_08", Power = 450 },
-		Factions = { "Rustborn", "Veiled", "Concord" },
+		Unlock = { Story = "STORY_01" },
+		Factions = { "Rustborn" },
 		Place = "Strike",
 		Order = 30,
-		Rotation = { "STRIKE_RUST_TYRANT", "STRIKE_HOLLOW_CHOIR", "STRIKE_ARBITER" },
+		Map = "HollowSpire",
+		Playable = true,
+		Scored = true,
+		Rewards = { Drops = { Min = 1, Max = 2 } },
 		Difficulties = {
-			{ Id = "Adept", Name = "Adept", RecommendedPower = 480, ModifierCount = 1, Milestone = "NIGHTFALL_WEEKLY" },
-			{ Id = "Hero", Name = "Hero", RecommendedPower = 490, ModifierCount = 2, Milestone = "NIGHTFALL_WEEKLY" },
+			{
+				Id = "Adept",
+				Name = "Adept",
+				RecommendedPower = 450,
+				ModifierCount = 2,
+				Milestones = { "NIGHTFALL_WEEKLY" },
+			},
+			{
+				Id = "Hero",
+				Name = "Hero",
+				RecommendedPower = 470,
+				ModifierCount = 2,
+				Milestones = { "NIGHTFALL_WEEKLY" },
+				BonusDrops = 1,
+			},
 			{
 				Id = "Legend",
 				Name = "Legend",
-				RecommendedPower = 500,
-				ModifierCount = 3,
-				Milestone = "NIGHTFALL_LEGEND",
+				RecommendedPower = 490,
+				ModifierCount = 2,
+				Milestones = { "NIGHTFALL_WEEKLY", "NIGHTFALL_LEGEND" },
+				BonusDrops = 2,
 			},
 		} :: { DifficultyDef },
+		Objectives = {
+			{ Kind = "Travel", Text = "Enter the Hollow Spire", Target = "Zone_Gate", Checkpoint = "Checkpoint_Gate" },
+			{
+				Kind = "Defeat",
+				Text = "Clear the Gate Hall",
+				Spawns = {
+					{
+						Group = "Arena1",
+						Enemies = { { Id = "RUST_GUNNER", Count = 5 }, { Id = "RUST_SCRAPPER", Count = 4 } },
+					},
+					{
+						Group = "Arena1",
+						Delay = 10,
+						Enemies = { { Id = "RUST_BREAKER", Count = 1 }, { Id = "RUST_GUNNER", Count = 2 } },
+					},
+				},
+				Checkpoint = "Checkpoint_Arena2",
+				Door = "Door_1",
+			},
+			{
+				Kind = "Defeat",
+				Text = "Break the Forge Line",
+				Spawns = {
+					{
+						Group = "Arena2",
+						Enemies = {
+							{ Id = "RUST_GUNNER", Count = 6 },
+							{ Id = "RUST_SCRAPPER", Count = 3 },
+							{ Id = "RUST_BREAKER", Count = 1 },
+						},
+					},
+					{
+						Group = "Arena2",
+						Delay = 12,
+						Enemies = { { Id = "RUST_BREAKER", Count = 1 }, { Id = "RUST_SCRAPPER", Count = 4 } },
+					},
+				},
+				Checkpoint = "Checkpoint_Arena3",
+				Door = "Door_2",
+			},
+			{
+				Kind = "Defend",
+				Text = "Hold the lift",
+				Target = "Zone_Lift",
+				Duration = 30,
+				WaveInterval = 8,
+				MaxAlive = 10,
+				Spawns = {
+					{
+						Group = "Arena3",
+						Enemies = { { Id = "RUST_SCRAPPER", Count = 3 }, { Id = "RUST_GUNNER", Count = 2 } },
+					},
+				},
+				Checkpoint = "Checkpoint_Boss",
+				Door = "Door_3",
+			},
+			{
+				Kind = "Boss",
+				Text = "Defeat Kaldrek, the Rust Tyrant",
+				Enemy = "RUST_KALDREK",
+				Target = "BossSpawn",
+				Mechanic = "ImmuneAdds",
+				AddsGroup = "BossAdds",
+			},
+		} :: { ObjectiveDef },
 	},
 
 	-- Dungeon --------------------------------------------------------------------------
@@ -519,58 +697,64 @@ local List: { ActivityDef } = {
 
 	-- Raid -------------------------------------------------------------------------------
 	{
-		Id = "RAID_DROWNED_STAR",
-		Name = "Crown of the Drowned Star",
+		Id = "RAID_VAULT_OF_ECHOES",
+		Name = "Vault of Echoes",
 		Type = "Raid",
 		Destination = "SolaceDeep",
-		Description = "Six Keepers descend to the ocean floor to face the star that fell into it.",
+		Description = "Six Keepers descend into a vault where every sound becomes a weapon. Encounter 1: silence the Echo Engine.",
 		RecommendedPower = 495,
 		MinPlayers = 1,
 		MaxPlayers = 6,
 		PowerEnabled = true,
 		PowerDeltaCap = 0,
 		LootSource = "Raid",
-		Unlock = { Story = "STORY_08", Power = 480 },
-		Factions = { "Veiled", "Concord" },
+		Unlock = { Power = 480 },
+		Factions = { "Rustborn" },
 		Place = "Raid",
 		Order = 50,
+		Map = "VaultOfEchoes",
+		Playable = true,
+		Rewards = { Drops = { Min = 0, Max = 0 }, ExclusiveChance = 0.15, FallbackDrops = 1 },
 		Encounters = {
 			{
-				Id = "THE_BREACH",
-				Name = "The Breach",
+				Id = "THE_ECHO_CHAMBER",
+				Name = "The Echo Chamber",
 				RecommendedPower = 495,
-				Description = "Hold three pressure locks while runners carry Starshards to crack the door.",
+				Description = "Harrowmaw is immune until three Keepers stand on the echo plates at once. Then: twenty seconds to hurt it. Don't let the enrage timer run out.",
+				Playable = true,
+				Milestone = "RAID_ENCOUNTER_1",
 				Objectives = {
-					{ Kind = "Defend", Text = "Hold all three locks", Target = "PressureLock", Duration = 45 },
 					{
-						Kind = "Carry",
-						Text = "Deliver Starshards to the door",
-						Item = "Starshard",
-						Target = "BreachDoor",
+						Kind = "Travel",
+						Text = "Enter the Echo Chamber",
+						Target = "Zone_Chamber",
+						Checkpoint = "Checkpoint_Chamber",
+					},
+					{
+						Kind = "Boss",
+						Text = "Defeat Harrowmaw, the Echo Engine",
+						Enemy = "RUST_ECHO_ENGINE",
+						Target = "BossSpawn",
+						Mechanic = "EchoPlates",
+						AddsGroup = "Adds",
 					},
 				},
-				Milestone = "RAID_ENCOUNTER_1",
 			},
 			{
-				Id = "CHOIR_OF_TIDES",
-				Name = "Choir of Tides",
+				Id = "HALL_OF_MIRRORS",
+				Name = "Hall of Mirrors",
 				RecommendedPower = 498,
-				Description = "Split the team between two chambers and match the tide symbols to open damage.",
-				Objectives = {
-					{ Kind = "Interact", Text = "Match the tide symbols", Target = "TideSymbol" },
-					{ Kind = "Boss", Text = "Defeat the Tidal Choir", Enemy = "VEIL_TIDAL_CHOIR" },
-				},
+				Description = "Coming later: split the team and match reflected symbols.",
 				Milestone = "RAID_ENCOUNTER_2",
+				Objectives = {},
 			},
 			{
-				Id = "DROWNED_STAR",
-				Name = "The Drowned Star",
+				Id = "THE_SILENT_CORE",
+				Name = "The Silent Core",
 				RecommendedPower = 500,
-				Description = "Break Thalassa's immune shield with Starshards, survive the adds, then burn her down.",
-				Objectives = {
-					{ Kind = "Boss", Text = "Defeat Thalassa, the Drowned Star", Enemy = "BOSS_THALASSA" },
-				},
+				Description = "Coming later: the heart of the vault.",
 				Milestone = "RAID_ENCOUNTER_3",
+				Objectives = {},
 			},
 		} :: { EncounterDef },
 	},
@@ -594,19 +778,27 @@ local List: { ActivityDef } = {
 	},
 }
 
--- Nightfall modifiers (Difficulty.ModifierCount of these are active each week).
-local NightfallModifiers = {
+-- Hardened strike modifiers. Two are active each week (ActivityRules.WeeklyModifiers).
+local NightfallModifiers: { [string]: ModifierDef } = {
+	EXTRA_SHIELDS = {
+		Name = "Overcharged Shields",
+		Description = "Unshielded enemies gain a Flare shield and existing shields are stronger.",
+		ExtraShields = 0.5,
+	},
+	MATCH_GAME = {
+		Name = "Match Game",
+		Description = "Shields only break to weapons of the matching element.",
+		MatchGame = true,
+	},
 	IRONHIDE = { Name = "Ironhide", Description = "Enemies have 30% more health.", EnemyHealth = 1.3 },
 	BLOODLUST = { Name = "Bloodlust", Description = "Enemies deal 30% more damage.", EnemyDamage = 1.3 },
-	SCARCITY = { Name = "Scarcity", Description = "Special and heavy ammo drop half as often.", AmmoDrops = 0.5 },
-	FLARE_SURGE = { Name = "Flare Surge", Description = "+25% Flare damage dealt by players.", Surge = "Flare" },
-	STORM_SURGE = { Name = "Storm Surge", Description = "+25% Storm damage dealt by players.", Surge = "Storm" },
-	NULL_SURGE = { Name = "Null Surge", Description = "+25% Null damage dealt by players.", Surge = "Null" },
-	HARDLIGHT_SHIELDS = {
-		Name = "Hardlight Shields",
-		Description = "Elemental shields take half damage from mismatched elements.",
-		MismatchShieldDamage = 0.5,
+	FLARE_SURGE = {
+		Name = "Flare Surge",
+		Description = "Your Flare weapons deal 25% more damage.",
+		Surge = "Flare",
+		SurgeBonus = 0.25,
 	},
+	SCARCITY = { Name = "Scarcity", Description = "Heavy ammo drops half as often.", AmmoDrops = 0.5 },
 }
 
 local ById: { [string]: ActivityDef } = {}

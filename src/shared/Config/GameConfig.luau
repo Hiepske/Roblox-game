@@ -52,7 +52,7 @@ local GameConfig = {
 		-- Base-rolled at PowerConfig.StartingPower and equipped on first join.
 		StarterLoadout = {
 			Kinetic = "W_FRONTIER_STANDARD",
-			Energy = "W_TINDER_NINE",
+			Energy = "W_LAST_EMBER",
 			Heavy = "W_SCRAPFIRE_TUBE",
 			Helmet = "A_FRONTIER_HELMET",
 			Arms = "A_FRONTIER_ARMS",
@@ -78,11 +78,27 @@ local GameConfig = {
 		KickOnSuspicion = true,
 	},
 
+	Activities = {
+		-- false: activities run as map copies far from the hub inside this server
+		-- (works in Studio). true: each activity gets its own Reserved Server via
+		-- TeleportService (needs a published game and AssetIds.Places filled in).
+		USE_RESERVED_SERVERS = false,
+		-- The raid is built for 6 but can be launched with this many for testing.
+		RAID_MIN_PLAYERS = 1,
+		-- Map copies are placed at X = InstanceSpacing * slot.
+		InstanceSpacing = 5000,
+		MaxInstances = 8,
+		-- Seconds on the loot screen before everyone returns to the hub.
+		ReturnToHubDelay = 12,
+	},
+
 	Debug = {
-		-- Master switch for the developer panel and debug remotes.
+		-- Master switch for the developer panel, debug remotes and chat commands.
 		Enabled = true,
 		-- Anyone testing in Studio gets debug access.
 		AllowInStudio = true,
+		-- The experience owner (user-owned games) gets debug access in live servers.
+		AllowGameOwner = true,
 		-- UserIds with debug access in live servers. Keep this short.
 		AdminUserIds = {} :: { number },
 	},
