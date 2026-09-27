@@ -1,0 +1,8 @@
+# Same toolchain as rokit.toml, for people still using Aftman.
+# Install with `aftman install`. Keep both files in sync.
+[tools]
+rojo = "rojo-rbx/rojo@7.7.0"
+lune = "lune-org/lune@0.10.5"
+selene = "Kampfkarren/selene@0.31.0"
+stylua = "JohnnyMorganz/StyLua@2.5.0"
+luau-lsp = "JohnnyMorganz/luau-lsp@1.70.0"

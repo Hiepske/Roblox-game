@@ -1,0 +1,33 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install toolchain (versions from rokit.toml)
+        run: |
+          bash scripts/install-tools.sh "$HOME/.tools/bin"
+          echo "$HOME/.tools/bin" >> "$GITHUB_PATH"
+
+      - name: Format (StyLua)
+        run: stylua --check src tests
+
+      - name: Lint (selene)
+        run: selene src
+
+      - name: Build place (Rojo)
+        run: |
+          mkdir -p build
+          rojo build default.project.json --output build/LastLight.rbxl
+
+      - name: Type check (luau-lsp, strict)
+        run: bash scripts/analyze.sh
+
+      - name: Unit tests (Lune)
+        run: lune run tests/run
