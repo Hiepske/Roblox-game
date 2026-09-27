@@ -107,8 +107,13 @@ local function accountPlaytime(player: Player, data: ProfileData)
 	local mark = playtimeMark[player]
 	if mark then
 		local now = os.clock()
-		data.Lifetime.PlaytimeSeconds += math.floor(now - mark)
+		local seconds = math.floor(now - mark)
+		data.Lifetime.PlaytimeSeconds += seconds
 		playtimeMark[player] = now - (now - mark) % 1
+		if seconds > 0 then
+			-- No-op for a player who is leaving (their profile is already detached).
+			DataService.Replicate(player, { "Lifetime", "PlaytimeSeconds" })
+		end
 	end
 end
 
