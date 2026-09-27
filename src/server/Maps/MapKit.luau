@@ -363,7 +363,7 @@ function MapKit.Billboard(
 
 	local titleLabel = Instance.new("TextLabel")
 	titleLabel.BackgroundTransparency = 1
-	titleLabel.Size = UDim2.new(1, 0, 0.55, 0)
+	titleLabel.Size = UDim2.fromScale(1, 0.55)
 	titleLabel.Font = Enum.Font.GothamBold
 	titleLabel.TextScaled = true
 	titleLabel.TextColor3 = color or Color3.new(1, 1, 1)
@@ -375,7 +375,7 @@ function MapKit.Billboard(
 		local subtitleLabel = Instance.new("TextLabel")
 		subtitleLabel.BackgroundTransparency = 1
 		subtitleLabel.Position = UDim2.fromScale(0, 0.58)
-		subtitleLabel.Size = UDim2.new(1, 0, 0.35, 0)
+		subtitleLabel.Size = UDim2.fromScale(1, 0.35)
 		subtitleLabel.Font = Enum.Font.Gotham
 		subtitleLabel.TextScaled = true
 		subtitleLabel.TextColor3 = Color3.fromRGB(200, 210, 225)

@@ -46,6 +46,5 @@ for _, failure in results.failures do
 	print(`\nFAIL {failure.name}\n{failure.err}`)
 end
 print(`\n{results.passed} passed, {results.failed} failed ({#specs} spec files)`)
-if results.failed > 0 then
-	process.exit(1)
-end
+-- Exit explicitly: specs may leave simulated game threads waiting.
+process.exit(if results.failed > 0 then 1 else 0)

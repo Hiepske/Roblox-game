@@ -21,6 +21,9 @@ local task = require("@lune/task")
 
 local VirtualGame = {}
 
+-- Instance proxies for engine-facing tests (see Proxy.luau).
+VirtualGame.Proxy = require("./Proxy")
+
 -- Fake Instances --------------------------------------------------------------
 
 local Methods = {}
@@ -261,6 +264,11 @@ virtualRequire = function(target)
 end
 
 VirtualGame.require = virtualRequire
+
+-- Makes `require(moduleScript)` return `value` (e.g. a fake network layer).
+function VirtualGame.Preload(moduleScript, value)
+	cache[moduleScript] = { value = value }
+end
 
 -- Adds globals visible to modules loaded after this call (e.g. test mocks).
 function VirtualGame.SetGlobal(name, value)

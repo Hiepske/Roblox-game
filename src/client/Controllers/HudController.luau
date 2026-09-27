@@ -308,7 +308,7 @@ local function build()
 	local bossShieldFill = UI.Make("Frame", {
 		BackgroundColor3 = Color3.fromRGB(255, 140, 60),
 		BorderSizePixel = 0,
-		Size = UDim2.new(0, 0, 0, 4),
+		Size = UDim2.fromOffset(0, 4),
 		Position = UDim2.new(0, 0, 1, 2),
 	}, bossBack) :: Frame
 	local bossTag = UI.Label({

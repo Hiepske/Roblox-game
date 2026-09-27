@@ -137,7 +137,9 @@ local function alivePlayers(run: Run): { Player }
 end
 
 local function setAttr(run: Run, name: string, value: any)
-	run.Folder:SetAttribute(name, value)
+	if run.Status ~= "Closed" then
+		run.Folder:SetAttribute(name, value)
+	end
 end
 
 local function markerCFrame(run: Run, name: string?): CFrame
@@ -391,12 +393,14 @@ local function runDefend(run: Run, token: number, objective: ObjectiveDef, index
 	local maxAlive = objective.MaxAlive or 8
 	local progress = 0
 	local nextWave = 0
-	local step = 0.2
+	local lastTick = now()
 	setObjective(run, objective.Text, "0%", 0, zone.Position)
 	while isActive(run, token) do
-		local clock = os.clock()
-		if clock >= nextWave then
-			nextWave = clock + interval
+		local current = now()
+		local dt = current - lastTick
+		lastTick = current
+		if current >= nextWave then
+			nextWave = current + interval
 			if aliveWithTag(run, tag) < maxAlive then
 				for _, spawn in (objective.Spawns or {}) :: { ActivityConfig.SpawnDef } do
 					spawnWave(run, spawn.Group, spawn.Enemies, tag, true)
@@ -405,7 +409,7 @@ local function runDefend(run: Run, token: number, objective: ObjectiveDef, index
 		end
 		local inside = #playersInZone(run, zone)
 		if inside > 0 then
-			progress += step
+			progress += dt
 		end
 		local fraction = math.min(1, progress / duration)
 		local suffix = if inside > 0 then "" else "  (stand in the zone!)"
@@ -413,7 +417,7 @@ local function runDefend(run: Run, token: number, objective: ObjectiveDef, index
 		if progress >= duration then
 			return true
 		end
-		task.wait(step)
+		task.wait(0.2)
 	end
 	return false
 end
@@ -466,12 +470,15 @@ local function runEchoPlates(run: Run, token: number, objective: ObjectiveDef, b
 	local phase = "Immune"
 	local charge = 0
 	local phaseEndsAt = 0
-	local nextAdds = os.clock() + raid.AddsInterval * 0.6
-	local step = 0.2
+	local nextAdds = now() + raid.AddsInterval * 0.6
+	local lastTick = now()
 	EnemyService.SetImmune(boss, true)
 	syncBoss(run)
 
 	while isActive(run, token) and not boss.Dead do
+		local current = now()
+		local dt = current - lastTick
+		lastTick = current
 		local solo = #run.Players <= 1
 		local required = if solo then 1 else math.min(#plates, #run.Players)
 		local chargeSeconds = if solo then raid.SoloPlateHoldSeconds else raid.PlateChargeSeconds
@@ -498,9 +505,9 @@ local function runEchoPlates(run: Run, token: number, objective: ObjectiveDef, b
 
 		if phase == "Immune" then
 			if held >= required then
-				charge += step
+				charge += dt
 			else
-				charge = math.max(0, charge - step * 2)
+				charge = math.max(0, charge - dt * 2)
 			end
 			setAttr(run, "Charge", math.min(1, charge / chargeSeconds))
 			local what = if solo then "Hold an echo plate" else `Hold {required} echo plates at once`
@@ -522,8 +529,8 @@ local function runEchoPlates(run: Run, token: number, objective: ObjectiveDef, b
 			syncBoss(run)
 		end
 
-		if adds and adds.Enemies and os.clock() >= nextAdds then
-			nextAdds = os.clock() + raid.AddsInterval
+		if adds and adds.Enemies and current >= nextAdds then
+			nextAdds = current + raid.AddsInterval
 			if aliveWithTag(run, "raidAdds") < 10 then
 				spawnWave(run, objective.AddsGroup or "Adds", adds.Enemies, "raidAdds", true)
 			end
@@ -538,13 +545,16 @@ local function runEchoPlates(run: Run, token: number, objective: ObjectiveDef, b
 			end
 			break
 		end
-		task.wait(step)
+		task.wait(0.2)
 	end
 
+	run.DamageBuff = 1
+	if run.Status == "Closed" then
+		return -- map and live folder are gone
+	end
 	for _, plate in plates do
 		plate.Color = baseColors[plate]
 	end
-	run.DamageBuff = 1
 	setAttr(run, "Charge", 0)
 	setAttr(run, "EnrageAt", 0)
 	setPhase(run, nil, nil)

@@ -154,7 +154,7 @@ local function buildCard(activity: ActivityDef, order: number)
 	local card = UI.Panel({
 		Name = activity.Id,
 		LayoutOrder = order,
-		Size = UDim2.new(0.31, 0, 1, 0),
+		Size = UDim2.fromScale(0.31, 1),
 		BackgroundColor3 = Theme.Colors.Panel,
 		BackgroundTransparency = 0.08,
 	}, cardsFrame)
@@ -166,7 +166,7 @@ local function buildCard(activity: ActivityDef, order: number)
 	local function text(props: { [string]: any }): TextLabel
 		line += 1
 		props.LayoutOrder = line
-		props.Size = props.Size or UDim2.new(1, 0, 0, 0)
+		props.Size = props.Size or UDim2.fromScale(1, 0)
 		props.AutomaticSize = Enum.AutomaticSize.Y
 		props.TextWrapped = true
 		props.RichText = true
@@ -360,7 +360,7 @@ local function build()
 	end
 
 	UI.Label({
-		Position = UDim2.new(0, 40, 0, 26),
+		Position = UDim2.fromOffset(40, 26),
 		Size = UDim2.new(1, -80, 0, 36),
 		Text = "THE DIRECTOR",
 		Font = Theme.Fonts.Title,
@@ -368,7 +368,7 @@ local function build()
 		TextColor3 = Theme.Colors.Accent,
 	}, gui)
 	UI.Label({
-		Position = UDim2.new(0, 40, 0, 62),
+		Position = UDim2.fromOffset(40, 62),
 		Size = UDim2.new(1, -80, 0, 20),
 		Text = "Choose a destination, Keeper.  [M] or [Esc] to close",
 		TextColor3 = Theme.Colors.TextDim,

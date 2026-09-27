@@ -217,7 +217,7 @@ local function createBar(enemy: Enemy)
 	local gui = Instance.new("BillboardGui")
 	gui.Name = "HealthBar"
 	gui.Adornee = enemy.Head
-	gui.Size = UDim2.new(3.2 * tierScale, 0, if showName then 1.3 else 0.5, 0)
+	gui.Size = UDim2.fromScale(3.2 * tierScale, if showName then 1.3 else 0.5)
 	gui.StudsOffset = Vector3.new(0, 1.6 * scale + 0.6, 0)
 	gui.MaxDistance = 160
 	gui.LightInfluence = 0
@@ -244,7 +244,7 @@ local function createBar(enemy: Enemy)
 	shield.Name = "Shield"
 	shield.AnchorPoint = Vector2.new(0, 1)
 	shield.Position = UDim2.fromScale(0, 0)
-	shield.Size = UDim2.new(0, 0, 0.5, 0)
+	shield.Size = UDim2.fromScale(0, 0.5)
 	local element = if enemy.ShieldElement then ElementConfig.Elements[enemy.ShieldElement] else nil
 	shield.BackgroundColor3 = if element then element.Color else Color3.new(1, 1, 1)
 	shield.BorderSizePixel = 0
@@ -276,7 +276,7 @@ local function updateBar(enemy: Enemy)
 	end
 	bar.Health.Size = UDim2.fromScale(math.clamp(enemy.Health / enemy.MaxHealth, 0, 1), 1)
 	local shieldFraction = if enemy.MaxShield > 0 then math.clamp(enemy.Shield / enemy.MaxShield, 0, 1) else 0
-	bar.Shield.Size = UDim2.new(shieldFraction, 0, 0.6, 0)
+	bar.Shield.Size = UDim2.fromScale(shieldFraction, 0.6)
 	bar.Health.BackgroundTransparency = if enemy.Immune then 0.6 else 0
 	if bar.Label then
 		local def = enemy.Def
