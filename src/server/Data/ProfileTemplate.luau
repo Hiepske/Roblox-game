@@ -83,6 +83,11 @@ local function buildTemplate(): ProfileData
 			Keybinds = {},
 		},
 		Flags = {},
+		Loadouts = {
+			{ Name = "Loadout 1", Slots = {} },
+			{ Name = "Loadout 2", Slots = {} },
+			{ Name = "Loadout 3", Slots = {} },
+		},
 	}
 end
 
@@ -249,6 +254,31 @@ function ProfileTemplate.Sanitize(data: ProfileData): { string }
 				seenLimited = true
 			end
 		end
+	end
+
+	-- Loadouts: three presets whose slots point at owned items.
+	if type(data.Loadouts) ~= "table" then
+		fixed("rebuilt loadouts")
+		data.Loadouts = {}
+	end
+	for index = 1, 3 do
+		local loadout = data.Loadouts[index]
+		if type(loadout) ~= "table" or type(loadout.Slots) ~= "table" then
+			data.Loadouts[index] = { Name = `Loadout {index}`, Slots = {} }
+		else
+			if type(loadout.Name) ~= "string" then
+				loadout.Name = `Loadout {index}`
+			end
+			for slot, uid in loadout.Slots do
+				local item = data.Items[uid]
+				if item == nil or item.Slot ~= slot then
+					loadout.Slots[slot] = nil
+				end
+			end
+		end
+	end
+	for index = #data.Loadouts, 4, -1 do
+		table.remove(data.Loadouts, index)
 	end
 
 	-- Currencies: finite, non-negative, within cap.

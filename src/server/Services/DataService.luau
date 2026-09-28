@@ -443,6 +443,7 @@ function DataService.GiveItem(player: Player, item: ItemInstance): (boolean, Typ
 		return false, nil
 	end
 	item.Location = location :: Types.ItemLocation
+	item.Seen = false
 	DataService.Set(player, { "Items", item.Uid }, item)
 
 	local highest = PowerMath.HighestPossible(data.Items)

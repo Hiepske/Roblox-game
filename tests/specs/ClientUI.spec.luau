@@ -89,10 +89,12 @@ VirtualGame.Services.RunService = {
 		return true
 	end,
 }
+VirtualGame.Services.GuiService = { SelectedObject = nil }
 VirtualGame.Services.UserInputService = {
 	InputBegan = signal(),
 	InputEnded = signal(),
 	InputChanged = signal(),
+	LastInputTypeChanged = signal(),
 	TouchEnabled = false,
 	MouseBehavior = nil,
 	MouseIconEnabled = true,
@@ -169,7 +171,7 @@ local ActivityController = require(Controllers.ActivityController)
 local WeaponController = require(Controllers.WeaponController)
 local HudController = require(Controllers.HudController)
 local DirectorController = require(Controllers.DirectorController)
-local CharacterScreenController = require(Controllers.CharacterScreenController)
+local InventoryController = require(Controllers.InventoryController)
 local LootController = require(Controllers.LootController)
 local ItemRoller = require(Shared.Items.ItemRoller)
 
@@ -213,7 +215,7 @@ describe("Client screens", function()
 				WeaponController,
 				HudController,
 				DirectorController,
-				CharacterScreenController,
+				InventoryController,
 				LootController,
 			}
 		do
@@ -225,7 +227,7 @@ describe("Client screens", function()
 				WeaponController,
 				HudController,
 				DirectorController,
-				CharacterScreenController,
+				InventoryController,
 				LootController,
 			}
 		do
@@ -233,7 +235,7 @@ describe("Client screens", function()
 		end
 		emit("DataSnapshot", profile)
 		expect(DataController.GetData()).toBe(profile)
-		for _, name in { "HUD", "Director", "CharacterScreen", "LootScreen" } do
+		for _, name in { "HUD", "Director", "Inventory", "LootScreen" } do
 			expect(guiNamed(name) ~= nil).toBe(true)
 		end
 	end)
@@ -326,9 +328,9 @@ describe("Client screens", function()
 		UIState.CloseMenu("Director")
 	end)
 
-	it("opens the character screen with all eight slots", function()
-		UIState.OpenMenu("Character")
-		local screen = guiNamed("CharacterScreen")
+	it("opens the inventory with all eight slots, details, vault and postmaster", function()
+		UIState.OpenMenu("Inventory")
+		local screen = guiNamed("Inventory")
 		expect(screen.Enabled).toBe(true)
 		local headers = 0
 		for _, descendant in screen:GetDescendants() do
@@ -337,7 +339,20 @@ describe("Client screens", function()
 			end
 		end
 		expect(headers).toBe(2)
-		UIState.CloseMenu("Character")
+		-- A new drop shows its NEW dot; the detail panel renders stat bars.
+		local spare
+		for uid, item in profile.Items do
+			if item.DefId == "W_TINDER_NINE" then
+				spare = item
+			end
+		end
+		spare.Seen = false
+		InventoryController.Refresh()
+		for _, tab in { "Vault", "Postmaster", "Infuse", "Character" } do
+			InventoryController.Open(tab)
+			InventoryController.Refresh()
+		end
+		UIState.CloseMenu("Inventory")
 	end)
 
 	it("shows the loot screen and toasts", function()

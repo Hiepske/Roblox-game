@@ -94,6 +94,17 @@ local Definitions: { [string]: RemoteDef } = {
 	EquipItem = { Kind = "Function", Direction = "ToServer", RateLimit = { Rate = 5, Burst = 10 } },
 	-- (uid) -> (ok, message)
 	DismantleItem = { Kind = "Function", Direction = "ToServer", RateLimit = { Rate = 5, Burst = 10 } },
+	-- (uid) -> (ok, message)
+	ToggleLock = { Kind = "Function", Direction = "ToServer", RateLimit = { Rate = 5, Burst = 10 } },
+	-- (uid, "Vault" | "Inventory") -> (ok, message)
+	TransferItem = { Kind = "Function", Direction = "ToServer", RateLimit = { Rate = 6, Burst = 15 } },
+	-- (targetUid, fuelUid) -> (ok, message)
+	InfuseItem = { Kind = "Function", Direction = "ToServer", RateLimit = { Rate = 2, Burst = 4 } },
+	-- (index 1-3) -> (ok, message)
+	SaveLoadout = { Kind = "Function", Direction = "ToServer", RateLimit = { Rate = 2, Burst = 4 } },
+	ApplyLoadout = { Kind = "Function", Direction = "ToServer", RateLimit = { Rate = 1, Burst = 3 } },
+	-- (uid): the player looked at a new item
+	MarkSeen = { Kind = "Event", Direction = "ToServer", RateLimit = { Rate = 30, Burst = 60 } },
 }
 
 Remotes.Definitions = Definitions

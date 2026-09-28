@@ -409,7 +409,7 @@ local function build()
 		TextSize = Theme.TextSize.Small,
 		TextColor3 = Theme.Colors.TextDim,
 		TextStrokeTransparency = 0.7,
-		Text = "[M] Director   [Tab/I] Character   [1/2/3] Weapons   [R] Reload   [RMB] Aim",
+		Text = "[M] Director   [Tab/I] Inventory   [1/2/3] Weapons   [R] Reload   [RMB] Aim",
 	}, gui)
 
 	refs = {

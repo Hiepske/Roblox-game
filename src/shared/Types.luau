@@ -151,6 +151,16 @@ export type ItemInstance = {
 	Location: ItemLocation,
 	Locked: boolean,
 	AcquiredAt: number,
+	-- false until the player has looked at it in the inventory ("NEW" dot).
+	-- nil counts as seen (items from before this field existed).
+	Seen: boolean?,
+}
+
+-- A saved equipment preset (inventory screen loadouts).
+export type LoadoutState = {
+	Name: string,
+	-- Gear slot -> item Uid.
+	Slots: { [string]: string },
 }
 
 export type BountyState = {
@@ -226,6 +236,9 @@ export type ProfileData = {
 
 	Settings: PlayerSettings,
 	Flags: { [string]: boolean },
+
+	-- Three saved loadouts.
+	Loadouts: { LoadoutState },
 }
 
 -- Modules must return exactly one value; the types above are what matter.
