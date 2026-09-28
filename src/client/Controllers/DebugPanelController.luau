@@ -297,6 +297,16 @@ local function build(screen: ScreenGui)
 	command("Cycle Class", "CycleClass")
 	command("Save Now", "SaveNow")
 	command("Apply Resets", "ExpireResets")
+	-- Phase 2 shortcuts (same as the chat commands /setpower, /launch, /god...).
+	command("Power 450", "SetPower", nil, 450)
+	command("Power 490", "SetPower", nil, 490)
+	command("Launch Story", "Launch", "story")
+	command("Launch Nightfall", "Launch", "nightfall:adept")
+	command("Launch Raid", "Launch", "raid")
+	command("Skip Objective", "Skip")
+	command("God Mode", "God")
+	command("Heavy Ammo", "Heavy")
+	command("Leave Activity", "Leave")
 
 	local confirmUntil = 0
 	button("Reset Profile", function(b: TextButton)

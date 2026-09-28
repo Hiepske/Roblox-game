@@ -174,8 +174,10 @@ Type these in chat (Studio, or the game's owner in a live server):
 | `/leave` | returns you to the hub |
 | `/help` | lists the commands |
 
-The **F2** developer panel from Phase 1 still works (currencies, random loot, save now,
-resets). It frees the mouse while it is open.
+Prefer clicking? Press **F2** for the developer panel (it frees the mouse while open).
+Besides the Phase 1 buttons (currencies, random loot, save now, resets) it has
+**Power 450/490**, **Launch Story/Nightfall/Raid**, **Skip Objective**, **God Mode**,
+**Heavy Ammo** and **Leave Activity**.
 
 ### Checking saves (Phase 1)
 

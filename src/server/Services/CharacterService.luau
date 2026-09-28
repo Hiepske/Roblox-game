@@ -178,6 +178,12 @@ function CharacterService.Spawn(player: Player, at: CFrame?)
 	local ok, err = pcall(function()
 		player:LoadCharacterAsync()
 	end)
+	if not ok and string.find(tostring(err), "not a valid member", 1, true) then
+		-- Older engine builds only have the synchronous LoadCharacter.
+		ok, err = pcall(function()
+			(player :: any):LoadCharacter()
+		end)
+	end
 	local character = player.Character
 	if not ok or character == nil or state.SpawnToken ~= token then
 		if not ok then
