@@ -345,7 +345,10 @@ The HUD reads live state from attributes on `ReplicatedStorage.LiveRuns.<runId>`
 `ObjectiveText/Count/Progress`, `Waypoint`, `Wave`, `ZoneName/ZoneIndex/ZoneCount/
 ZoneStartedAt/ZoneLog`, `BossName/Health/Shield/Immune/Thresholds`, `Phase`,
 `PhaseEndsAt`, `Charge`, `EnrageAt`, `Score`, `StartedAt`, `Status`, `ReturnAt`,
-`Elapsed`, `Kills_<userId>`/`Deaths_<userId>`.
+`Elapsed`, `Medal`, `TotalDeaths`, `Kills_<userId>`/`Deaths_<userId>`. The raid's echo
+carrier is shown from the player's own `EchoChargeUntil` attribute. `ActivityState`
+(sent when you enter or leave a run) also carries the destination name, the start time
+and the intro shot (`PlayerStart` → the first step target) for the camera fly-over.
 
 ### Zones (`MissionService`, `MissionRules.ZoneList`)
 
@@ -391,10 +394,17 @@ by the validator. The HUD shows a big bar with ticks at the immune thresholds.
   `Safe_n` circles survive).
 - **Adds** trickle in every `Adds.Interval` s; **heavy ammo** drops at `Ammo_n` every
   `HeavyAmmoEvery` s; raid bosses **enrage** after `Enrage.After` s (wipe).
-- **EchoPlates** (raid encounter 1) replaces the loop: immune until
-  `min(3, fireteam size)` plates are held at once for `PlateChargeSeconds` (solo: one
-  plate for `SoloPlateHoldSeconds`), then a `DamagePhaseSeconds` window with
-  `DamageBuff`.
+- **EchoPlates** (the Gate, Harrowmaw) replaces the loop: immune until
+  `min(3, fireteam size)` of the lit plates are held at once for `PlateChargeSeconds`
+  (solo: one plate for `SoloPlateHoldSeconds`), then a `DamagePhaseSeconds` window with
+  `DamageBuff`. The lit plates are picked again every cycle.
+- **EchoDeposit** (the Echo Chamber, Echo Warden): an Echo Bearer (glowing) appears in
+  each `Room_n`. Killing one charges the killer (`EchoChargeUntil`, `ChargeSeconds`);
+  standing in the `EchoWell` zone deposits it. After `Needed` deposits the boss is
+  vulnerable for `DamageSeconds` with `DamageBuff`. A charge that fades brings its
+  Bearer back 6 s later, and adds keep coming.
+- **Nova** (Echo Sovereign, phases 2-3): lit `Safe_n` circles appear for `Windup` s;
+  players outside every circle take `Damage` (default: lethal).
 - **Death**: a chain of explosions with a second of slow motion on every client, the
   remaining enemies fall, and the loot chest appears where the boss died.
 
@@ -409,14 +419,16 @@ by the validator. The HUD shows a big bar with ticks at the immune thresholds.
 
 ### Unlocks, difficulty, modifiers, score
 
-`ActivityRules.CheckUnlock`: the Nightfall needs `STORY_01` completed, the raid needs
-power 480. Launching below the recommended power is allowed (the Director shows it in
+`ActivityRules.CheckUnlock`: story missions unlock in order, the Nightfall needs
+`STORY_01` completed, the raid needs power 480. Launching below the recommended power is allowed (the Director shows it in
 red; the power delta curve makes it hard). `RAID_MIN_PLAYERS` (default 1) is the
 fireteam size needed to launch the raid. Nightfall difficulties set the power (450 /
 470 / 490), extra drops and weekly milestones; two modifiers are picked each week from
 `NightfallModifiers` deterministically from the weekly reset time, so the Director and
 the server agree. Scored activities count kill points plus a bonus for each second
-under `Score.ParSeconds`.
+under `Score.ParSeconds`. An activity with `Medals` (the Nightfall: Gold 8:00, Silver
+11:00, Bronze 15:00) awards the best medal whose time the run beat
+(`MissionRules.Medal`); Gold adds a bonus drop.
 
 ### Rewards (`LootService.AwardCompletion`)
 
@@ -425,31 +437,34 @@ anything unclaimed is sent when the fireteam returns to the hub (or leaves).
 
 | Activity | Rewards |
 |----------|---------|
-| First Light | 2-3 drops, Rare 60 / Epic 40, World power (+0..+5 below 450) |
-| Nightfall | 1-2 drops (+1 Hero, +2 Legend); weekly `NIGHTFALL_WEEKLY` Powerful (tier 3); Legend adds weekly `NIGHTFALL_LEGEND` Pinnacle |
-| Raid encounter 1 | weekly `RAID_ENCOUNTER_1` Pinnacle (+1/+2); 15% chance of a raid-exclusive Legendary; after the weekly claim, 1 ordinary drop instead |
+| Story missions | 2-3 drops, Rare/Epic, World power, plus a guaranteed weapon from the mission's pool that you don't own yet (any, once you own them all) |
+| Nightfall | 1-2 drops (+1 Hero, +2 Legend, +1 for a Gold medal); weekly `NIGHTFALL_WEEKLY` Powerful (tier 3); Legend adds weekly `NIGHTFALL_LEGEND` Pinnacle |
+| Raid boss encounters (Gate, Echo Chamber, Sovereign) | each has its own chest and weekly Pinnacle milestone (+1/+2); 15% chance of a raid-exclusive Legendary; after the weekly claim, 1 ordinary drop instead. Traversals (Descent, Silent Hall) have no chest. A chest pays only players who were there when the encounter was cleared |
+
+The chest opens the **Mission Complete** screen: the loot cards under a summary of the
+run (time, your kills and deaths, the fireteam's, medal and score; `LootService.RunSummary`,
+sent with completion rewards and with a finished raid's last chest).
 
 Enemy kills can also drop gear (`LootConfig.EnemyGearChance`, bosses excluded) and
 heavy ammo boxes (`LootConfig.AmmoDrops`, × the Scarcity modifier).
 
 ## 8. Maps (`server/MapBuilders`)
 
-Maps are built in code with `MapKit` (blocks, rooms with door gaps, ramps, neon trim,
-lights, signs) so the repository needs no binary files. Each map is a Model with three
-folders:
+Maps are built in code with `MapKit` (blocks, wedges, neon trim, lights, gates, movers,
+terrain recipes) and `Props` (trees, houses, crates, crystals, weather...), so the
+repository needs no binary files. Each map is a Model with `Geometry`, `Markers`,
+`Gates` and `Terrain` folders and a `KillY` attribute; the code only reads markers,
+gates, attributes and tags, so the scenery can be changed freely. Terrain is stored as
+invisible recipe parts and filled in for each activity copy, in `TerrainOrder` (the
+Hollow Dark's caves are rock carved with Air). Moving platforms (`LL_Mover`) and
+lasers (`LL_Laser`) move on the clients by server time; the server computes where a
+laser is from the same timing (`World/Motion.luau`) to burn players in it.
 
-- `Geometry`: everything you see and stand on.
-- `Markers`: invisible, non-colliding parts the code looks up by name:
-  `PlayerStart`, `Checkpoint_*`, `Zone_*` (a box sized to the zone), `Spawn_<Group>_<n>`,
-  `BossSpawn`, and in the hub `HubSpawn` and `Dummy_1..3`.
-- `Doors`: force-field parts named in objectives (`Door_*`); opening makes them
-  non-colliding and invisible.
-
-Raid plates (`Plate_1..3`) are visible parts anywhere in the map. `Maps.spec` builds
-every map and checks that each marker, spawn group, door and plate referenced by
-`ActivityConfig` exists. To hand-build a map in Studio, keep the same folder and marker
-names, name the Model after `ActivityDef.Map`, and put it in `ServerStorage.Activities`:
-WorldService only generates maps that aren't already there.
+`Maps.spec` builds every map, checks the part budget (15,000) and anchoring, and checks
+that each marker the activity configs need exists (`MissionRules.Requirements` /
+`MapMarkers.Missing`). [MAPS.md](MAPS.md) has the command-bar snippets, how to keep a
+hand-edited map (`ServerStorage.Activities`, or `Workspace.Hub`), which maps are worth
+editing, and every map's markers.
 
 ## 9. Content at a glance
 
@@ -464,8 +479,8 @@ WorldService only generates maps that aren't already there.
 - **Classes**: Bulwark, Ranger and Mystic, each with 2 elemental subclasses (grenade,
   melee, super, passive), a class ability and a jump.
 - **Activities**: 8 story missions (350→440), 4 patrol zones, 3 strikes, a Nightfall
-  with 3 difficulties and modifiers, 1 dungeon (2 encounters), 1 raid (3 encounters)
-  and PvP. **Playable now:** the story missions First Light (Frostreach, 350),
+  with 3 difficulties and modifiers, 1 dungeon (2 encounters), 1 raid (3 boss
+  encounters and 2 traversals) and PvP. **Playable now:** the story missions First Light (Frostreach, 350),
   Sunken Relay (Meridian Coast, 380) and The Hollow Dark (Hollowmere caves, 410,
   flashlights), unlocked in that order; the Hollow Spire Nightfall; and the raid.
   The rest are configured and appear once they get a map.
@@ -473,7 +488,21 @@ WorldService only generates maps that aren't already there.
   flying and boss units. Bosses carry scripted mechanics (immune phases, damage
   windows, add waves, enrage timers).
 
-## 10. How to add content
+## 10. Presentation (client, `PresentationConfig`)
+
+None of this affects gameplay; the server only sends what the clients draw.
+
+| Piece | Controller | How it works |
+|-------|------------|--------------|
+| Loading screen | `LoadingController` | Shown by the Director when a launch or join starts (and briefly on the way back to the Spire). Destination art from `AssetIds.Images.Loading` (a placeholder drawn in `Loading.Palettes` colors while it's 0), the activity name and a tip from `Tips`. It hides after `MinSeconds` once `ActivityState` has arrived and the start area has streamed in |
+| Mission intro | `IntroController` | On entering a new run (not when joining one older than `Intro.MaxRunAge`), `CameraController.SetOverride` hands over the camera, which flies a curve from above `PlayerStart` toward the first objective while letterbox bars and the title card fade in. `UIState.SetCinematic` blocks input and hides the HUD; any key skips it |
+| Waypoint | `WaypointController` | A screen-space diamond with meters over the run's `Waypoint` attribute; clamped to the screen edge with an arrow when off screen; fades under the crosshair |
+| Music | `MusicController` | Crossfades looping Hub / Explore / Combat / Boss tracks (`AssetIds.Sounds.Music`). Combat volume follows the threat of enemies within `CombatRadius` (enemy models carry a `Tier` attribute; weights in `Music.Threat`), rising fast and calming over `CalmSeconds`. Boss while `BossActive`; Victory once on completion |
+| Kill feed | `KillFeedController` | The `KillFeed` remote (kind, actor, target, tier) from ActivityService: kills, boss defeats, deaths (cause = `CharacterService.LastDamageSource`) and revives |
+| Mission Complete | `LootController` | The loot screen with the `Summary` row (see Rewards) |
+| Mission cues | `CueController` | `WorldCue` effects: rifts, dropships, telegraphs, safe zones, shields, gates, the floor collapse and the slow-motion boss death |
+
+## 11. How to add content
 
 Run `lune run tests/run` after any config change. `ConfigValidator` runs in the
 tests and at server start, and names the exact broken reference.
@@ -508,7 +537,9 @@ automatically. Exotic armor goes in `Exotics` with a `ClassRestriction` and an
    `Build(): Model` (copy an existing builder), with markers `Spawns/PlayerStart`,
    `Checkpoints/CP_<zone>`, `Objectives/...`, `EnemySpawns/<zone>/...`,
    `BossArena/BossSpawn` (+ `Ammo_n`, `Pylon_n`...) and gates `Gate_<zone>`. Register it
-   in `WorldConfig.Maps` and add a lighting preset.
+   in `WorldConfig.Maps`, add a lighting preset, a loading image slot in
+   `AssetIds.Images.Loading` and a placeholder palette in
+   `PresentationConfig.Loading.Palettes` (see MAPS.md).
 2. Append to `ActivityConfig.List` with `Type`, `Destination`, `RecommendedPower`,
    player counts, `LootSource`, `Unlock`, `Factions`, `Place` (a key in
    `AssetIds.Places`), `Map`, `Playable = true`, `Rewards`, and `Zones` (each with
@@ -533,7 +564,7 @@ client→server) a `RateLimit`. Handle it on the server with
 `NetService.OnEvent(name, { Guard checks... }, handler)`, and never trust anything
 the client sends beyond what the checks guarantee.
 
-## 11. Original naming
+## 12. Original naming
 
 The mechanics are inspired by the genre, but names are original. For reference:
 players are **Keepers**, the hub is **Haven Spire**, the activity map is **the
