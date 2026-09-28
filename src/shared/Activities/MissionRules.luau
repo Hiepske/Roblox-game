@@ -183,6 +183,43 @@ function MissionRules.Requirements(activity: ActivityDef): { Requirement }
 	return list
 end
 
+-- Medals ----------------------------------------------------------------------------
+
+-- "Gold" | "Silver" | "Bronze" for finishing in `seconds`, or nil.
+function MissionRules.Medal(activity: ActivityDef, seconds: number): string?
+	local medals = activity.Medals
+	if medals == nil then
+		return nil
+	end
+	if seconds <= medals.Gold then
+		return "Gold"
+	elseif seconds <= medals.Silver then
+		return "Silver"
+	elseif seconds <= medals.Bronze then
+		return "Bronze"
+	end
+	return nil
+end
+
+-- The best medal still reachable at `seconds` and its time limit, or nil.
+function MissionRules.NextMedal(activity: ActivityDef, seconds: number): (string?, number?)
+	local medals = activity.Medals
+	if medals == nil then
+		return nil, nil
+	end
+	local order: { { Name: string, Limit: number } } = {
+		{ Name = "Gold", Limit = medals.Gold },
+		{ Name = "Silver", Limit = medals.Silver },
+		{ Name = "Bronze", Limit = medals.Bronze },
+	}
+	for _, entry in order do
+		if seconds <= entry.Limit then
+			return entry.Name, entry.Limit
+		end
+	end
+	return nil, nil
+end
+
 -- Formatting ------------------------------------------------------------------------
 
 -- 125 -> "2:05"

@@ -201,6 +201,8 @@ export type CompletionInfo = {
 	-- Encounters cleared this run (raids).
 	Encounters: { ActivityConfig.EncounterDef },
 	Title: string,
+	-- Extra drops earned during the run (a Gold medal).
+	BonusDrops: number?,
 }
 
 -- End-of-activity rewards for one player. Returns what was awarded.
@@ -217,6 +219,7 @@ function LootService.AwardCompletion(player: Player, info: CompletionInfo): { Aw
 	if info.Difficulty and info.Difficulty.BonusDrops then
 		dropCount += info.Difficulty.BonusDrops
 	end
+	dropCount += info.BonusDrops or 0
 
 	-- Weekly milestones: difficulty milestones (Nightfall) and encounter milestones (raid).
 	local milestones: { string } = {}

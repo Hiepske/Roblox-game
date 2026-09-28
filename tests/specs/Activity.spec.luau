@@ -615,41 +615,71 @@ describe("Nightfall: Hollow Spire", function()
 		expect(ActivityService.JumpToZone(player, 3)).toBe(true)
 		advance(0.3)
 		expect(run.ZoneIndex).toBe(3)
-		expect(run.Map.Doors.Door_1.CanCollide).toBe(false)
-		expect(run.Map.Doors.Door_2.CanCollide).toBe(false)
-		expect(run.Map.Doors.Door_3.CanCollide).toBe(true)
-		expect(run.Checkpoint).toBe("Checkpoint_Arena3")
-		expect(near(chars[player].Position, marker(run, "Checkpoint_Arena3").Position)).toBe(true)
-		expect(run.Folder:GetAttribute("ZoneName")).toBe("The Lift")
+		expect(run.Map.Gates.Gate_Canyon:GetAttribute("Open")).toBe(true)
+		expect(run.Map.Gates.Gate_Gate:GetAttribute("Open")).toBe(true)
+		expect(run.Map.Gates.Gate_Halls:GetAttribute("Open")).toBeNil()
+		expect(run.Checkpoint).toBe("CP_Halls")
+		expect(near(chars[player].Position, marker(run, "CP_Halls").Position)).toBe(true)
+		expect(run.Folder:GetAttribute("ZoneName")).toBe("The Inner Halls")
 	end)
 
-	it("skips a step with /skip, opening the zone's gate", function()
+	it("skips steps with /skip, opening the zone's gate", function()
+		ActivityService.SkipObjective(player)
+		advance(0.3)
 		ActivityService.SkipObjective(player)
 		advance(0.3)
 		expect(run.ZoneIndex).toBe(4)
-		expect(run.Map.Doors.Door_3.CanCollide).toBe(false)
-		expect(run.Checkpoint).toBe("Checkpoint_Boss")
+		expect(run.Map.Gates.Gate_Halls.Slab.CanCollide).toBe(false)
+		expect(run.Checkpoint).toBe("CP_Summit")
 	end)
 
-	it("makes Kaldrek immune at 66% and 33% until his guards die", function()
+	it("makes Vekta immune at 66% (guards) and 33% (pylons, and the floor collapses)", function()
 		local boss = alive(run.Id, "boss")[1]
-		expect(boss.Def.Id).toBe("RUST_KALDREK")
-		for _, threshold in { 0.6, 0.3 } do
-			boss.Health = boss.MaxHealth * threshold
-			advance(0.5)
-			expect(boss.Immune).toBe(true)
-			expect(run.Folder:GetAttribute("BossImmune")).toBe(true)
+		expect(boss.Def.Id).toBe("RUST_SPIRE_OVERSEER")
+		boss.Health = boss.MaxHealth * 0.6
+		advance(0.5)
+		expect(boss.Immune).toBe(true)
+		for _ = 1, 2 do
 			arrive()
-			killAll(run.Id, "bossImmune")
+			killAll(run.Id, "bossImmune1")
 			advance(0.5)
-			expect(boss.Immune).toBe(false)
 		end
+		expect(boss.Immune).toBe(false)
+		boss.Health = boss.MaxHealth * 0.3
+		advance(0.5)
+		expect(boss.Immune).toBe(true)
+		expect(cues.Collapse).toBe(1)
+		local pylons = alive(run.Id, "bossImmune2")
+		expect(#pylons).toBe(3)
+		expect(pylons[1].Def.Id).toBe("RUST_PYLON")
+		for _, pylon in pylons do
+			kill(pylon)
+		end
+		advance(0.5)
+		expect(boss.Immune).toBe(false)
+		advance(4)
+		local floor = run.Map:FindFirstChild("CollapseFloor", true)
+		for _, part in floor:GetDescendants() do
+			if part:IsA("BasePart") then
+				expect(part.CanCollide).toBe(false)
+			end
+		end
+	end)
+
+	it("scores the run and hands out a medal for the time", function()
+		local boss = alive(run.Id, "boss")[1]
 		kill(boss)
 		advance(0.5)
 		expect(run.Status).toBe("Complete")
 		expect(run.Folder:GetAttribute("Score") > 0).toBe(true)
+		local elapsed = run.Folder:GetAttribute("Elapsed")
+		local MissionRules = require(Shared.Activities.MissionRules)
+		expect(run.Folder:GetAttribute("Medal")).toBe(MissionRules.Medal(run.Activity, elapsed) or "")
+		expect(run.Folder:GetAttribute("Medal")).toBe("Gold") -- /zone skipped most of it
 		ActivityService.Leave(player)
-		expect(completions[#completions].Info.Difficulty.Id).toBe("Legend")
+		local info = completions[#completions].Info
+		expect(info.Difficulty.Id).toBe("Legend")
+		expect(info.BonusDrops).toBe(1)
 	end)
 end)
 
@@ -811,7 +841,7 @@ describe("Every mission plays through to the chest", function()
 		{
 			{ Id = "STORY_02", Boss = "CONC_TIDE_MARSHAL", Power = 380 },
 			{ Id = "STORY_03", Boss = "VEIL_HOLLOW_PRIEST", Power = 410 },
-			{ Id = "NIGHTFALL", Boss = "RUST_KALDREK", Power = 450 },
+			{ Id = "NIGHTFALL", Boss = "RUST_SPIRE_OVERSEER", Power = 450 },
 		}
 	do
 		it(spec.Id, function()

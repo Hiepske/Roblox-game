@@ -155,6 +155,34 @@ local List: { BossDef } = {
 		Chest = true,
 	},
 	{
+		Id = "SPIRE_OVERSEER",
+		Enemy = "RUST_SPIRE_OVERSEER",
+		Immune = {
+			{
+				At = 0.66,
+				Break = "Adds",
+				Text = "Vekta calls the Spire guard: break them",
+				Enemies = { RUST_BREAKER = 1, RUST_GUNNER = 3, RUST_SCRAPPER = 3 },
+				Waves = 2,
+			},
+			{
+				At = 0.33,
+				Break = "Pylons",
+				Text = "The floor gives way! Destroy the ward pylons",
+				Count = 3,
+				Enemy = "RUST_PYLON",
+				Collapse = "CollapseFloor",
+			},
+		},
+		Attacks = {
+			{ Kind = "Barrage", Cooldown = 9, FirstAt = 5, Windup = 1, Count = 18, Damage = 11 },
+			{ Kind = "Slam", Cooldown = 12, FirstAt = 10, Windup = 1.6, Radius = 17, Damage = 70, Leap = true },
+		},
+		Adds = { Interval = 26, Enemies = { RUST_SCRAPPER = 2, RUST_GUNNER = 2 }, MaxAlive = 8 },
+		HeavyAmmoEvery = 35,
+		Chest = true,
+	},
+	{
 		Id = "KALDREK",
 		Enemy = "RUST_KALDREK",
 		Immune = {

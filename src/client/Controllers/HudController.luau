@@ -28,6 +28,7 @@ local ElementConfig = require(Config:WaitForChild("ElementConfig"))
 local RarityConfig = require(Config:WaitForChild("RarityConfig"))
 local PowerMath = require(Shared:WaitForChild("Power"):WaitForChild("PowerMath"))
 local MissionRules = require(Shared:WaitForChild("Activities"):WaitForChild("MissionRules"))
+local ActivityConfig = require(Config:WaitForChild("ActivityConfig"))
 
 local ClientNet = require(script.Parent.Parent.Net.ClientNet)
 local Theme = require(script.Parent.Parent.UI.Theme)
@@ -46,6 +47,11 @@ local SHIELD_COLOR = Color3.fromRGB(110, 200, 255)
 local HEALTH_COLOR = Color3.fromRGB(235, 240, 245)
 local LOW_HEALTH_COLOR = Color3.fromRGB(255, 90, 80)
 local BOSS_COLOR = Color3.fromRGB(245, 200, 60)
+local MEDAL_COLORS: { [string]: Color3 } = {
+	Gold = Color3.fromRGB(255, 205, 70),
+	Silver = Color3.fromRGB(210, 220, 230),
+	Bronze = Color3.fromRGB(215, 140, 80),
+}
 
 type Refs = {
 	Gui: ScreenGui,
@@ -772,7 +778,15 @@ local function updateActivity()
 	local startedAt = tonumber(attr("StartedAt")) or serverNow
 	if info.Scored then
 		local elapsed = if status == "Complete" then tonumber(attr("Elapsed")) or 0 else serverNow - startedAt
-		table.insert(extra, `Time {fmtTime(elapsed)}    Score {attr("Score") or 0}`)
+		local line = `Time {fmtTime(elapsed)}    Score {attr("Score") or 0}`
+		local activity = if info.ActivityId then ActivityConfig.ById[info.ActivityId] else nil
+		if activity and status ~= "Complete" then
+			local medal, limit = MissionRules.NextMedal(activity, elapsed)
+			if medal and limit then
+				line ..= `    {UI.Colored(`{medal} under {fmtTime(limit)}`, MEDAL_COLORS[medal] or Theme.Colors.Text)}`
+			end
+		end
+		table.insert(extra, line)
 	end
 	local enrageAt = tonumber(attr("EnrageAt")) or 0
 	if enrageAt > 0 then
@@ -861,8 +875,15 @@ local function updateActivity()
 		local returnAt = tonumber(attr("ReturnAt")) or serverNow
 		refs.Banner.Visible = true
 		refs.Banner.TextColor3 = Theme.Colors.Power
+		local medal = tostring(attr("Medal") or "")
+		local medalLine = if medal ~= ""
+			then `\n{UI.Colored(
+				`{string.upper(medal)} MEDAL  ·  {fmtTime(tonumber(attr("Elapsed")) or 0)}`,
+				MEDAL_COLORS[medal] or Theme.Colors.Text
+			)}`
+			else ""
 		refs.Banner.Text =
-			`{string.upper(info.Name or "Activity")} COMPLETE\n<font size="18">Returning to the Spire in {math.ceil(
+			`{string.upper(info.Name or "Activity")} COMPLETE{medalLine}\n<font size="18">Returning to the Spire in {math.ceil(
 				math.max(0, returnAt - serverNow)
 			)}s</font>`
 	elseif status == "Wiped" then

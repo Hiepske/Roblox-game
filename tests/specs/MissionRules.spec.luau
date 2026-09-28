@@ -96,3 +96,24 @@ describe("Zone log", function()
 		expect(MissionRules.FormatTime(5)).toBe("0:05")
 	end)
 end)
+
+describe("Medals", function()
+	it("awards Gold, Silver or Bronze by finish time", function()
+		local nightfall = ActivityConfig.ById.NIGHTFALL
+		local medals = nightfall.Medals
+		expect(MissionRules.Medal(nightfall, medals.Gold)).toBe("Gold")
+		expect(MissionRules.Medal(nightfall, medals.Gold + 1)).toBe("Silver")
+		expect(MissionRules.Medal(nightfall, medals.Bronze)).toBe("Bronze")
+		expect(MissionRules.Medal(nightfall, medals.Bronze + 1)).toBeNil()
+		expect(MissionRules.Medal(ActivityConfig.ById.STORY_01, 10)).toBeNil()
+	end)
+
+	it("names the best medal still in reach", function()
+		local nightfall = ActivityConfig.ById.NIGHTFALL
+		local medal, limit = MissionRules.NextMedal(nightfall, 0)
+		expect(medal).toBe("Gold")
+		expect(limit).toBe(nightfall.Medals.Gold)
+		expect((MissionRules.NextMedal(nightfall, nightfall.Medals.Gold + 5))).toBe("Silver")
+		expect((MissionRules.NextMedal(nightfall, nightfall.Medals.Bronze + 5))).toBeNil()
+	end)
+end)

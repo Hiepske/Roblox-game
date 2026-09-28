@@ -26,6 +26,7 @@ local Shared = ReplicatedStorage.Shared
 local MissionRules = require(Shared.Activities.MissionRules)
 
 local CharacterService = require(script.Parent.CharacterService)
+local EnemyService = require(script.Parent.EnemyService)
 local NetService = require(script.Parent.NetService)
 
 local Missions = script.Parent.Parent.Missions
@@ -147,7 +148,8 @@ function MissionService.JumpTo(run: Run, index: number): string
 	return run.Checkpoint
 end
 
--- Players who fell off the map go back to the checkpoint.
+-- Players who fell off the map go back to the checkpoint. Enemies that fell
+-- die (so waves still finish); a falling boss is put back on its spawn.
 function MissionService.CheckFalls(run: Run)
 	if run.Status ~= "Active" then
 		return
@@ -159,6 +161,16 @@ function MissionService.CheckFalls(run: Run)
 		if root and CharacterService.IsAlive(player) and root.Position.Y < floor then
 			CharacterService.Teleport(player, MissionKit.MarkerCFrame(run, run.Checkpoint))
 			NetService.Notify(player, "Back to the checkpoint", "Info")
+		end
+	end
+	for _, enemy in EnemyService.GetEnemies(run.Id) do
+		if enemy.Root.Position.Y < floor then
+			local spawn = MissionKit.Marker(run, "BossSpawn")
+			if enemy == run.Boss and spawn then
+				EnemyService.Relocate(enemy, spawn.CFrame + Vector3.new(0, 3, 0))
+			else
+				EnemyService.Kill(enemy)
+			end
 		end
 	end
 end

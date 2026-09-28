@@ -639,6 +639,11 @@ function EnemyService.SetBusy(enemy: Enemy, seconds: number)
 	end
 end
 
+-- Kills an enemy outright (it fell off the map). Counts as a kill without a killer.
+function EnemyService.Kill(enemy: Enemy)
+	kill(enemy, nil)
+end
+
 -- Damage can't take the enemy's health below `floor` (0 turns it off).
 function EnemyService.SetHealthFloor(enemy: Enemy, floor: number)
 	enemy.HealthFloor = math.max(0, floor)

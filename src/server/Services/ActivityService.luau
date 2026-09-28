@@ -172,12 +172,14 @@ local function claimRewards(run: Run, player: Player)
 	if run.Difficulty then
 		title ..= ` ({run.Difficulty.Name})`
 	end
-	local ok, err = pcall(LootService.AwardCompletion, player, {
+	local info: LootService.CompletionInfo = {
 		Activity = run.Activity,
 		Difficulty = run.Difficulty,
 		Encounters = run.Cleared,
 		Title = title,
-	})
+		BonusDrops = if run.Medal == "Gold" then 1 else 0,
+	}
+	local ok, err = pcall(LootService.AwardCompletion, player, info)
 	if not ok then
 		warn(`[ActivityService] Rewards failed for {player.Name}: {err}`)
 	end
@@ -280,6 +282,8 @@ complete = function(run: Run)
 		run.Score += math.floor(bonus)
 		setAttr(run, "Score", run.Score)
 	end
+	run.Medal = MissionRules.Medal(run.Activity, elapsed)
+	setAttr(run, "Medal", run.Medal or "")
 	local delay = GameConfig.Activities.ReturnToHubDelay
 	setAttr(run, "Status", "Complete")
 	setAttr(run, "ReturnAt", now() + delay)
@@ -517,6 +521,7 @@ local function createRun(activity: ActivityDef, difficulty: DifficultyDef?): (Ru
 		Stats = {},
 		ChestAt = nil,
 		Rewarded = {},
+		Medal = nil,
 		Wipe = function(_reason: string) end,
 	}
 	run.Wipe = function(reason: string)

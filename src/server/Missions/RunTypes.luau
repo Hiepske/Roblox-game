@@ -62,6 +62,8 @@ export type Run = {
 	ChestAt: CFrame?,
 	-- Players who already claimed their rewards.
 	Rewarded: { [Player]: boolean },
+	-- Medal earned by the finish time ("Gold" | "Silver" | "Bronze").
+	Medal: string?,
 	-- Kills everyone and restarts the encounter (set by ActivityService).
 	Wipe: (reason: string) -> (),
 }

@@ -179,6 +179,8 @@ export type ActivityDef = {
 	Rewards: RewardDef?,
 	-- Show a run timer and score on the HUD (hardened strike).
 	Scored: boolean?,
+	-- Finish under these many seconds for a Gold/Silver/Bronze medal.
+	Medals: { Gold: number, Silver: number, Bronze: number }?,
 }
 
 export type DestinationDef = {
@@ -797,7 +799,7 @@ local List: { ActivityDef } = {
 		Name = "Hollow Spire",
 		Type = "Nightfall",
 		Destination = "Veyra",
-		Description = "A hardened strike into Kaldrek's fortress. Three arenas, a tyrant at the top, and two weekly modifiers stacked against you. Beat the clock for a higher score.",
+		Description = "A hardened strike up a cliff fortress at dusk: fight up Redrock Canyon, break the Iron Gate's generators, hold the inner halls and bring down Vekta on the Spire Crown. Two weekly modifiers; beat the clock for a medal.",
 		RecommendedPower = 450,
 		MinPlayers = 1,
 		MaxPlayers = 3,
@@ -837,66 +839,74 @@ local List: { ActivityDef } = {
 				BonusDrops = 2,
 			},
 		} :: { DifficultyDef },
+		Medals = { Gold = 480, Silver = 660, Bronze = 900 },
 		Zones = {
 			{
-				Id = "GateHall",
-				Name = "The Gate Hall",
-				Checkpoint = "PlayerStart",
-				Gate = "Door_1",
+				Id = "Canyon",
+				Name = "Redrock Canyon",
 				Steps = {
-					{ Kind = "Travel", Text = "Enter the Hollow Spire", Target = "Zone_Gate" },
+					{ Kind = "Travel", Text = "Advance up the canyon", Target = "CanyonBend" },
 					{
 						Kind = "Waves",
-						Text = "Clear the Gate Hall",
-						Spawns = "Arena1",
+						Text = "Break through the canyon",
 						Waves = {
-							Wave({ RUST_GUNNER = 4, RUST_SCRAPPER = 3 }),
-							Wave({ RUST_BREAKER = 1, RUST_GUNNER = 2, RUST_SNIPER = 1 }),
+							Wave({ RUST_TURRET = 2, RUST_GUNNER = 3 }, "Ambush", "CanyonLedges"),
+							Wave({ RUST_SCRAPPER = 4, RUST_GUNNER = 2 }),
+							Wave({ RUST_SKIFF_DRONE = 3, RUST_SCRAPPER = 2 }, "Dropship"),
+							Wave({ RUST_BREAKER = 1, RUST_GUNNER = 3, RUST_SNIPER = 1 }),
 						},
 					},
 				} :: { StepDef },
 			},
 			{
-				Id = "ForgeLine",
-				Name = "The Forge Line",
-				Checkpoint = "Checkpoint_Arena2",
-				Gate = "Door_2",
+				Id = "Gate",
+				Name = "The Iron Gate",
+				Steps = {
+					{
+						Kind = "Destroy",
+						Text = "Break the three shield generators",
+						Target = "Generator",
+						Count = 3,
+						WaveInterval = 14,
+						Waves = {
+							Wave({ RUST_SCRAPPER = 3, RUST_GUNNER = 2 }),
+							Wave({ RUST_SNIPER = 2 }, "Ambush", "GateWall"),
+							Wave({ RUST_SKIFF_DRONE = 2, RUST_GUNNER = 2 }, "Dropship"),
+						},
+					},
+				} :: { StepDef },
+			},
+			{
+				Id = "Halls",
+				Name = "The Inner Halls",
 				Steps = {
 					{
 						Kind = "Waves",
-						Text = "Break the Forge Line",
-						Spawns = "Arena2",
+						Text = "Clear the inner halls",
 						Waves = {
-							Wave({ RUST_GUNNER = 4, RUST_SCRAPPER = 3, RUST_TURRET = 1 }),
-							Wave({ RUST_SKIFF_DRONE = 3, RUST_SNIPER = 1 }, "Dropship"),
+							Wave({ RUST_GUNNER = 4, RUST_SCRAPPER = 4 }),
+							Wave({ RUST_TURRET = 2, RUST_GUNNER = 2 }, "Ambush", "HallTurrets"),
 							Wave({ RUST_BREAKER = 1, RUST_SCRAPPER = 3 }),
 						},
 					},
-				} :: { StepDef },
-			},
-			{
-				Id = "Lift",
-				Name = "The Lift",
-				Checkpoint = "Checkpoint_Arena3",
-				Gate = "Door_3",
-				Steps = {
 					{
 						Kind = "Defend",
-						Text = "Hold the lift",
-						Target = "Zone_Lift",
-						Duration = 30,
-						Spawns = "Arena3",
-						WaveInterval = 9,
-						Waves = { Wave({ RUST_SCRAPPER = 3, RUST_GUNNER = 2 }) },
+						Text = "Hold the lift controls",
+						Target = "LiftControls",
+						Duration = 35,
+						WaveInterval = 11,
+						Waves = {
+							Wave({ RUST_SCRAPPER = 3, RUST_GUNNER = 2 }),
+							Wave({ RUST_SKIFF_DRONE = 2, RUST_SCRAPPER = 2 }),
+						},
 					},
 				} :: { StepDef },
 			},
 			{
 				Id = "Summit",
-				Name = "The Summit",
-				Checkpoint = "Checkpoint_Boss",
+				Name = "The Spire Crown",
 				Steps = {
-					{ Kind = "Boss", Text = "Defeat Kaldrek, the Rust Tyrant", Boss = "KALDREK", Spawns = "BossAdds" },
+					{ Kind = "Boss", Text = "Defeat Vekta, the Spire Overseer", Boss = "SPIRE_OVERSEER" },
 				} :: { StepDef },
 			},
 		} :: { ZoneDef },
