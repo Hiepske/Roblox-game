@@ -12,11 +12,34 @@ this ray") through remotes, and the server validates every one.
 
 ```
 Client (StarterPlayerScripts)            Server (ServerScriptService)
-  Controllers ── ClientNet ──remotes──►  NetService ─► Services (Data, Debug, ...)
+  Controllers ── ClientNet ──remotes──►  NetService ─► Services
       ▲                                     │ rate limit, arg checks, suspicion
       └──── DataSnapshot / DataChanged ◄────┘ DataService (owns saved data)
 Shared (ReplicatedStorage.Shared): Config, Types, PowerMath, ItemRoller, Util
 ```
+
+Server services, in start order (later ones may use earlier ones):
+
+| Service | Owns |
+|---------|------|
+| NetService | remotes, validation, rate limits |
+| DataService | saved data, replication to the owner |
+| WorldService | hub + activity map templates, runtime folders, lighting |
+| CharacterService | spawning, shields/health, damage to players, death, respawn timing |
+| ProjectileService | server-simulated projectiles (enemy bolts, rockets) |
+| EnemyService | enemy rigs, AI, health/shields, immunity, death |
+| CombatService | player → enemy damage pipeline, hit feedback |
+| WeaponService | loadouts, ammo, fire/reload/swap validation, gun models |
+| LootService | drops, ammo boxes, weekly milestones, activity rewards |
+| InventoryService | equip and dismantle |
+| ActivityService | activity instances, objectives, boss mechanics, deaths, the Director |
+| DebugService | developer commands |
+
+Cycles are avoided with injection: ActivityService installs resolvers into
+CharacterService (what happens on death, where to respawn), CombatContext (power and
+modifiers for damage) and LootService (which activity an enemy belonged to), and
+listens to signals (`EnemyKilled`, `CharacterSpawned`, `PlayerDied`). A player's
+activity is the `InstanceId` attribute on the Player (nil in the hub).
 
 - **Services** live in `src/server/Services`. Each has `Init()` (create remotes and
   connect handlers, never yields) and `Start()` (begin loops). `Main.server.luau`
@@ -219,9 +242,173 @@ Legendary, and Starglass for Exotic. Default capacities are 9 spare items per ge
 slot on the character, a vault of 200 and a postmaster of 21. When a slot is full,
 drops go to the postmaster (`Inventory.ResolveDropLocation`).
 
-## 5. Content at a glance
+## 5. Combat
 
-- **Weapons** (40): 10 Rare, 12 Epic, 12 Legendary and 6 Exotic across 13 archetypes.
+### Weapons (`Weapons/WeaponStats.luau`, `WeaponTypeConfig`, `CombatConfig.WeaponStats`)
+
+`WeaponStats.Compute(item)` turns a rolled weapon into combat numbers: the archetype's
+base damage, RPM, magazine, reload/swap time and range, adjusted by the item's rolled
+stats (Impact → damage, Range → falloff distance, Stability → recoil, Handling →
+swap time, Reload → reload time) after perk stat modifiers and the masterwork. Primary ammo is
+infinite; heavy weapons carry `Reserves` and start each activity with
+`CombatConfig.Weapons.HeavyStartingReserve` spare rounds.
+
+A shot, end to end:
+
+1. The client (`WeaponController`) checks fire rate, magazine and reload locally for
+   responsiveness, casts a ray from the camera through the crosshair (with spread),
+   and sends `WeaponFire(slot, aimPoint, shotId)`. It draws its own tracer, flash and
+   recoil immediately.
+2. The server (`WeaponService`) re-checks the active slot, swap and reload timers,
+   the fire interval (× `FireRateTolerance`, faster fire is flagged) and the magazine,
+   then raycasts from the character's **head** toward the aim point, ignoring
+   player characters. Rockets become server projectiles instead.
+3. `CombatService` computes damage (below), applies it through `EnemyService`, and
+   sends the shooter `CombatFeedback` (damage number + hit marker). Other players get
+   `ShotEffect` so they see the tracer.
+
+### Damage (`Combat/DamageMath.luau`)
+
+```
+damage = base × falloff(distance) × precision(if headshot, capped by enemy CritSpot)
+       × outgoing power multiplier × (1 + surge) × damage buff
+```
+
+The outgoing/incoming power multipliers come from `PowerMath.CombatMultipliers` with
+the player's `CombatContext` (character power, activity power, delta cap). In the hub
+activity power = your own power, so the range shows raw weapon damage. Shields absorb
+damage first; a weapon matching the shield's element does bonus shield damage and
+bursts it (splash to nearby enemies); overflow carries into health. Kinetic weapons
+do reduced shield damage but a bonus against unshielded targets. Under the Match Game
+modifier, only the matching element damages a shield at all.
+
+### Players (`CharacterService`, `CombatConfig.Player`)
+
+Shields (class value) then health. After `ShieldRegenDelay` (4 s) without damage the
+shield refills, then health. Incoming damage × the incoming power multiplier × (1 −
+Fortitude reduction). The default Roblox health regen is replaced by an empty script.
+
+## 6. Enemies (`EnemyService`, `EnemyConfig`, `Enemies/EnemyRigs.luau`)
+
+Rigs are R15 models made from a HumanoidDescription colored per faction, decorated
+with parts (glowing eyes, helmet, shoulder pads, gun or blades, shield pack), scaled
+by `Scale`, and put in the `Enemies` collision group. Headshots are the head and
+anything named `Eye`/`Helmet`/`Crown`. If R15 creation fails a blocky R6 rig is built.
+
+AI runs on the server every `CombatConfig.Enemies.TickInterval`:
+
+| State | Behavior |
+|-------|----------|
+| Idle | no player of the same instance within `AggroRange` |
+| Alert | just noticed someone: short pause, turns to face them |
+| Chase | direct `MoveTo` with line of sight, PathfindingService without |
+| Attack | ranged: strafe and fire dodgeable bolts (bosses fire volleys); melee: wind up, then hit if still in reach |
+| Cover | ranged units hurt below half health run to a spot the target can't see |
+
+Health and damage scale with the activity's recommended power
+(`PowerMath.ActivityEnemyScale`), modifiers (Ironhide, Bloodlust, Overcharged
+Shields) and fireteam size (+50% health per extra player; raids are tuned for six and
+scaled down instead). Health bars are BillboardGuis: red minors, yellow majors and
+bosses with name and title, and `[IMMUNE]` when immune. Dummies never die and refill
+after 3 seconds.
+
+## 7. Activities (`ActivityService`, `ActivityConfig`, `Activities/ActivityRules.luau`)
+
+### Instances
+
+With `GameConfig.Activities.USE_RESERVED_SERVERS = false` (default, works in Studio)
+each launch clones the map template from `ServerStorage.Activities` into
+`Workspace.Instances` at `X = InstanceSpacing × slot` (5000, 10000, ...; up to
+`MaxInstances`), tags players with `InstanceId`, and teleports them to `PlayerStart`.
+Enemies, projectiles, ammo boxes and damage only interact within one instance. When
+everyone leaves or `ReturnToHubDelay` passes after completion, the copy is destroyed.
+With the flag on, `Launch` reserves a server for `AssetIds.Places[activity.Place]` and
+teleports the player with `{ ActivityId, DifficultyId }` as teleport data; the
+reserved server launches or joins that activity when the player arrives.
+
+The HUD reads live state from attributes on `ReplicatedStorage.LiveRuns.<runId>`:
+`ObjectiveText/Count/Progress`, `Waypoint`, `BossName/Health/Shield/Immune`, `Phase`,
+`PhaseEndsAt`, `Charge`, `EnrageAt`, `Score`, `StartedAt`, `Status`, `ReturnAt`.
+
+### Objectives
+
+`ActivityRules.ObjectiveList` flattens an activity's objectives (or its playable raid
+encounters' objectives). The runner walks them in order:
+
+| Kind | Completes when |
+|------|----------------|
+| Travel | a living player is inside the `Target` zone marker |
+| Defeat | every enemy from `Spawns` (including delayed groups) is dead |
+| Defend | players have stood in the `Target` zone for `Duration` seconds (paused while it's empty); a wave from `Spawns` arrives every `WaveInterval` while fewer than `MaxAlive` live |
+| Boss | the boss dies; `Mechanic` decides the fight (below) |
+
+After each objective the checkpoint moves to `Checkpoint` and the part `Door` opens.
+
+Boss mechanics use the enemy's `Mechanics` list:
+
+- **Standard**: each `Adds` entry spawns at its health threshold.
+- **ImmuneAdds**: at the `Immune` threshold the boss turns immune and its adds spawn;
+  immunity ends when those adds are dead.
+- **EchoPlates** (raid): immune until `min(3, fireteam size)` plates are held at once
+  for `PlateChargeSeconds` (solo: one plate for `SoloPlateHoldSeconds`), then a
+  `DamagePhaseSeconds` window with `DamageBuff`; adds every `AddsInterval`; at
+  `EnrageSeconds` the team is wiped and the encounter restarts.
+
+### Deaths
+
+| Where | Result |
+|-------|--------|
+| Hub | respawn after `Respawn.Hub` s |
+| Story / Nightfall | respawn at the checkpoint after `Respawn.Activity` s |
+| Raid, solo | respawn at the checkpoint after `Respawn.RaidSolo` s |
+| Raid, fireteam | a ghost with a 3-second "Revive" prompt; nobody left alive = wipe: everyone respawns at the checkpoint after `Respawn.RaidWipe` s and the current encounter restarts from scratch |
+
+### Unlocks, difficulty, modifiers, score
+
+`ActivityRules.CheckUnlock`: the Nightfall needs `STORY_01` completed, the raid needs
+power 480. Launching below the recommended power is allowed (the Director shows it in
+red; the power delta curve makes it hard). `RAID_MIN_PLAYERS` (default 1) is the
+fireteam size needed to launch the raid. Nightfall difficulties set the power (450 /
+470 / 490), extra drops and weekly milestones; two modifiers are picked each week from
+`NightfallModifiers` deterministically from the weekly reset time, so the Director and
+the server agree. Scored activities count kill points plus a bonus for each second
+under `Score.ParSeconds`.
+
+### Rewards (`LootService.AwardCompletion`)
+
+| Activity | Rewards |
+|----------|---------|
+| First Light | 2-3 drops, Rare 60 / Epic 40, World power (+0..+5 below 450) |
+| Nightfall | 1-2 drops (+1 Hero, +2 Legend); weekly `NIGHTFALL_WEEKLY` Powerful (tier 3); Legend adds weekly `NIGHTFALL_LEGEND` Pinnacle |
+| Raid encounter 1 | weekly `RAID_ENCOUNTER_1` Pinnacle (+1/+2); 15% chance of a raid-exclusive Legendary; after the weekly claim, 1 ordinary drop instead |
+
+Enemy kills can also drop gear (`LootConfig.EnemyGearChance`, bosses excluded) and
+heavy ammo boxes (`LootConfig.AmmoDrops`, × the Scarcity modifier).
+
+## 8. Maps (`server/Maps`)
+
+Maps are built in code with `MapKit` (blocks, rooms with door gaps, ramps, neon trim,
+lights, signs) so the repository needs no binary files. Each map is a Model with three
+folders:
+
+- `Geometry`: everything you see and stand on.
+- `Markers`: invisible, non-colliding parts the code looks up by name:
+  `PlayerStart`, `Checkpoint_*`, `Zone_*` (a box sized to the zone), `Spawn_<Group>_<n>`,
+  `BossSpawn`, and in the hub `HubSpawn` and `Dummy_1..3`.
+- `Doors`: force-field parts named in objectives (`Door_*`); opening makes them
+  non-colliding and invisible.
+
+Raid plates (`Plate_1..3`) are visible parts anywhere in the map. `Maps.spec` builds
+every map and checks that each marker, spawn group, door and plate referenced by
+`ActivityConfig` exists. To hand-build a map in Studio, keep the same folder and marker
+names, name the Model after `ActivityDef.Map`, and put it in `ServerStorage.Activities`:
+WorldService only generates maps that aren't already there.
+
+## 9. Content at a glance
+
+- **Weapons** (41): 11 Rare, 12 Epic, 12 Legendary and 6 Exotic across 13 archetypes.
+  Starter loadout: Frontier Standard (auto rifle), Last Ember (hand cannon), Scrapfire
+  Tube (rocket launcher).
   Kinetic slot = primaries with no element. Energy slot = primaries and specials
   (Flare/Storm/Null). Heavy slot = rockets, grenade launchers, machine guns, swords.
 - **Perks**: 24 traits, 16 barrel/magazine options, 6 exotic weapon signatures and
@@ -229,14 +416,15 @@ drops go to the postmaster (`Inventory.ResolveDropLocation`).
 - **Armor**: 6 sets (5 pieces each) and 6 class-locked exotics.
 - **Classes**: Bulwark, Ranger and Mystic, each with 2 elemental subclasses (grenade,
   melee, super, passive), a class ability and a jump.
-- **Activities**: 8 story missions (350→440), 4 patrol zones, 3 strikes, a hardened
-  strike with 3 difficulties and modifiers, 1 dungeon (2 encounters), 1 raid
-  (3 encounters) and PvP.
+- **Activities**: 8 story missions (350→440), 4 patrol zones, 3 strikes, a Nightfall
+  with 3 difficulties and modifiers, 1 dungeon (2 encounters), 1 raid (3 encounters)
+  and PvP. **Playable now:** First Light, the Hollow Spire Nightfall and raid encounter
+  1 (The Echo Chamber); the rest are configured and appear once they get a map.
 - **Enemies**: 3 factions (Rustborn, Veiled, Concord). Each has minor, major,
   flying and boss units. Bosses carry scripted mechanics (immune phases, damage
   windows, add waves, enrage timers).
 
-## 6. How to add content
+## 10. How to add content
 
 Run `lune run tests/run` after any config change. `ConfigValidator` runs in the
 tests and at server start, and names the exact broken reference.
@@ -251,7 +439,9 @@ tests and at server start, and names the exact broken reference.
 3. Exotics need `FixedPerks` that include one `Column = "Exotic"` perk. Add that perk
    to `PerkConfig.List` with `AppliesTo = { "<its type>" }` and an `Effect` for the
    combat code.
-4. Add a placeholder model name; drop a real model into `ReplicatedStorage.Assets.Weapons` later.
+4. Set `Model` to a name. The game builds a part model for the archetype; a real model
+   with that name in `ServerStorage.WeaponModels` replaces it (PrimaryPart = grip, a
+   `Muzzle` attachment at the tip).
 
 ### A new perk
 Append to `PerkConfig.List` with a `Column` and `AppliesTo`, plus `StatModifiers`
@@ -265,19 +455,27 @@ automatically. Exotic armor goes in `Exotics` with a `ClassRestriction` and an
 `ExoticArmor` perk.
 
 ### A new mission
-Append to `ActivityConfig.List` with `Type`, `Destination`, `RecommendedPower`,
-player counts, `LootSource`, `Unlock` (the previous mission and/or a power
-requirement), `Factions`, `Place` (a key in `AssetIds.Places`) and an `Objectives`
-script (Travel / Defeat / Defend / Carry / Interact / Survive / Boss). Raids and
-dungeons use `Encounters`, each with its own objectives and a weekly `Milestone`.
-Cast optional arrays with `:: { ObjectiveDef }` (and similar) so the type checker
-can check each entry.
+1. Build a map: a module in `server/Maps` returning `Build(): Model` (copy
+   `FirstLight.luau`), with `PlayerStart`, zones, checkpoints, spawn groups, doors and a
+   `BossSpawn`. Register it in `WorldConfig.Maps` and `WorldService`'s `MapBuilders`,
+   and add a lighting preset in `WorldConfig.Lighting`.
+2. Append to `ActivityConfig.List` with `Type`, `Destination`, `RecommendedPower`,
+   player counts, `LootSource`, `Unlock` (the previous mission and/or a power
+   requirement), `Factions`, `Place` (a key in `AssetIds.Places`), `Map`,
+   `Playable = true`, `Rewards`, and an `Objectives` script (Travel / Defeat / Defend /
+   Boss; Carry / Interact / Survive are reserved). Raids and dungeons use
+   `Encounters`, each with its own objectives, `Playable` and a weekly `Milestone`.
+3. Run the tests: the validator and `Maps.spec` catch objectives that point at markers
+   the map doesn't have. Cast optional arrays with `:: { ObjectiveDef }` so the type
+   checker can check each entry.
 
 ### A new enemy
 Append to `EnemyConfig.List` with its faction, tier (Minor/Major/Boss), role, base
 `Health`/`Damage` (at activity power 350), movement and attack stats, an optional
-elemental `Shield`, AI `Behavior`, and for bosses a `Mechanics` list. Reference it
-from mission objectives by `Id`.
+elemental `Shield`, AI `Behavior`, `Scale`/`Title` for majors and bosses, and for
+bosses a `Mechanics` list. Reference it from objective `Spawns` or a Boss objective by
+`Id`. A rig named after its `Model` field in `ServerStorage.EnemyModels` replaces the
+generated one.
 
 ### A new remote
 Declare it in `Shared/Net/Remotes.luau` with `Kind`, `Direction` and (for
@@ -285,12 +483,13 @@ client→server) a `RateLimit`. Handle it on the server with
 `NetService.OnEvent(name, { Guard checks... }, handler)`, and never trust anything
 the client sends beyond what the checks guarantee.
 
-## 7. Original naming
+## 11. Original naming
 
 The mechanics are inspired by the genre, but names are original. For reference:
-players are **Keepers**, the hub is **Haven Spire**, the activity map is the
-**Star Chart**, the hardened strike is **The Long Dark**, the overflow vendor is the
-**Courier Depot**, and the currencies are **Quanta / Resonant Alloy / Fluxite /
+players are **Keepers**, the hub is **Haven Spire**, the activity map is **the
+Director**, the weekly hardened strike is **Hollow Spire** (listed as "Nightfall", the
+name the Phase 2 brief asked for; change `TYPE_LABELS` in `DirectorController` to
+rename it), the overflow vendor is the **Courier Depot**, and the currencies are **Quanta / Resonant Alloy / Fluxite /
 Starglass**. Elements are **Flare / Storm / Null**, and the armor stats are
 **Agility / Fortitude / Vitality / Ordnance / Focus / Might**. Display names live
 in the configs and can be changed there without touching any logic.
