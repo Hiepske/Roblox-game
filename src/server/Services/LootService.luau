@@ -109,9 +109,23 @@ function LootService.Roll(
 	return item
 end
 
+-- How the run went, shown on the Mission Complete screen with the loot.
+export type RunSummary = {
+	Activity: string,
+	Kind: string,
+	Elapsed: number,
+	Kills: number,
+	Deaths: number,
+	FireteamKills: number,
+	FireteamDeaths: number,
+	Medal: string?,
+	Score: number?,
+}
+
 -- Sends awards to the client. `screen` = true shows the full loot screen
--- (end of activity); otherwise a small toast per item.
-function LootService.Announce(player: Player, awards: { Award }, title: string, screen: boolean)
+-- (end of activity, with the run `summary` when given); otherwise a small
+-- toast per item.
+function LootService.Announce(player: Player, awards: { Award }, title: string, screen: boolean, summary: RunSummary?)
 	local data = DataService.GetData(player)
 	local power = if data then PowerMath.CharacterPower(data.Items, data.Equipped) else 0
 	local highest = if data then PowerMath.HighestPossible(data.Items) else 0
@@ -125,6 +139,7 @@ function LootService.Announce(player: Player, awards: { Award }, title: string, 
 		Awards = list,
 		Power = power,
 		HighestPower = highest,
+		Summary = summary,
 	})
 end
 
@@ -203,6 +218,7 @@ export type CompletionInfo = {
 	Title: string,
 	-- Extra drops earned during the run (a Gold medal).
 	BonusDrops: number?,
+	Summary: RunSummary?,
 }
 
 -- End-of-activity rewards for one player. Returns what was awarded.
@@ -263,7 +279,7 @@ function LootService.AwardCompletion(player: Player, info: CompletionInfo): { Aw
 		)
 	end
 
-	LootService.Announce(player, awards, info.Title, true)
+	LootService.Announce(player, awards, info.Title, true, info.Summary)
 	return awards
 end
 
@@ -272,7 +288,8 @@ end
 function LootService.AwardEncounter(
 	player: Player,
 	activity: ActivityConfig.ActivityDef,
-	encounter: ActivityConfig.EncounterDef
+	encounter: ActivityConfig.EncounterDef,
+	summary: RunSummary?
 ): { Award }
 	local source = activity.LootSource
 	local rewards = activity.Rewards
@@ -292,7 +309,7 @@ function LootService.AwardEncounter(
 			"Exclusive"
 		)
 	end
-	LootService.Announce(player, awards, `{activity.Name}: {encounter.Name}`, true)
+	LootService.Announce(player, awards, `{activity.Name}: {encounter.Name}`, true, summary)
 	return awards
 end
 

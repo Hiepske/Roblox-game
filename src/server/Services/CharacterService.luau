@@ -49,6 +49,8 @@ type State = {
 	MaxShield: number,
 	DamageReduction: number,
 	LastDamageAt: number,
+	-- What hurt the player last (an enemy name, "Laser"...), for the kill feed.
+	LastSource: string?,
 	ProtectedUntil: number,
 	God: boolean,
 	-- Bumped on every spawn/death so stale respawn timers do nothing.
@@ -77,6 +79,7 @@ local function getState(player: Player): State
 			MaxShield = 0,
 			DamageReduction = 0,
 			LastDamageAt = 0,
+			LastSource = nil,
 			ProtectedUntil = 0,
 			God = false,
 			SpawnToken = 0,
@@ -242,7 +245,7 @@ function CharacterService.Teleport(player: Player, cframe: CFrame)
 end
 
 -- Enemy damage enters here. Returns the damage actually taken.
-function CharacterService.DamagePlayer(player: Player, amount: number, _source: string?): number
+function CharacterService.DamagePlayer(player: Player, amount: number, source: string?): number
 	local state = states[player]
 	if state == nil or not state.Alive or state.God or amount <= 0 then
 		return 0
@@ -267,6 +270,7 @@ function CharacterService.DamagePlayer(player: Player, amount: number, _source: 
 	})
 	local damage = amount * incoming * (1 - state.DamageReduction)
 	state.LastDamageAt = now
+	state.LastSource = source
 
 	local remaining = damage
 	if state.Shield > 0 then
@@ -310,6 +314,15 @@ function CharacterService.Kill(player: Player)
 	if state and state.Alive and state.Humanoid then
 		state.Humanoid.Health = 0
 	end
+end
+
+-- What last damaged the player, if that was within the last few seconds.
+function CharacterService.LastDamageSource(player: Player): string?
+	local state = states[player]
+	if state == nil or os.clock() - state.LastDamageAt > 5 then
+		return nil
+	end
+	return state.LastSource
 end
 
 function CharacterService.IsAlive(player: Player): boolean

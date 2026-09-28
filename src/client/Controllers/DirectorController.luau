@@ -30,6 +30,7 @@ local UI = require(script.Parent.Parent.UI.UI)
 local UIState = require(script.Parent.Parent.UI.UIState)
 local ActivityController = require(script.Parent.ActivityController)
 local DataController = require(script.Parent.DataController)
+local LoadingController = require(script.Parent.LoadingController)
 
 type ActivityDef = ActivityConfig.ActivityDef
 
@@ -116,12 +117,14 @@ local function launch(activity: ActivityDef)
 	end
 	busy = true
 	statusLabel.Text = `Launching {activity.Name}...`
+	LoadingController.Show(activity.Name, ActivityRules.DestinationName(activity), activity.Map)
 	local ok, message = ClientNet.Invoke("DirectorLaunch", activity.Id, selectedDifficulty[activity.Id])
 	busy = false
 	if ok then
 		statusLabel.Text = ""
 		UIState.CloseMenu(MENU)
 	else
+		LoadingController.Hide(true)
 		statusLabel.Text = tostring(message or "Launch failed")
 	end
 end
@@ -131,11 +134,16 @@ local function join(run: RunInfo)
 		return
 	end
 	busy = true
+	local activity = ActivityConfig.ById[run.ActivityId]
+	if activity then
+		LoadingController.Show(activity.Name, ActivityRules.DestinationName(activity), activity.Map)
+	end
 	local ok, message = ClientNet.Invoke("DirectorJoin", run.RunId)
 	busy = false
 	if ok then
 		UIState.CloseMenu(MENU)
 	else
+		LoadingController.Hide(true)
 		statusLabel.Text = tostring(message or "Couldn't join")
 	end
 end

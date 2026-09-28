@@ -172,6 +172,9 @@ function FakeCharacters.DamagePlayer(player, amount)
 	damageTaken[player] = (damageTaken[player] or 0) + amount
 	return amount
 end
+function FakeCharacters.LastDamageSource()
+	return "Scrap Warden"
+end
 function FakeCharacters.SendStatus(player, status)
 	statuses[player] = status
 end
@@ -267,10 +270,10 @@ function FakeEnemies.Kill(enemy)
 end
 VirtualGame.Preload(Server.Services.EnemyService, FakeEnemies)
 
-local function kill(enemy)
+local function kill(enemy, killer)
 	enemy.Dead = true
 	enemy.Health = 0
-	EnemyKilled:Fire(enemy, nil)
+	EnemyKilled:Fire(enemy, killer)
 end
 local function alive(instanceId, tagPrefix)
 	local list = {}
@@ -300,8 +303,11 @@ VirtualGame.Preload(Server.Services.LootService, {
 	DropAmmo = function()
 		ammoDrops += 1
 	end,
-	AwardEncounter = function(player, activity, encounter)
-		table.insert(completions, { Player = player, Info = { Activity = activity, Encounter = encounter } })
+	AwardEncounter = function(player, activity, encounter, summary)
+		table.insert(
+			completions,
+			{ Player = player, Info = { Activity = activity, Encounter = encounter, Summary = summary } }
+		)
 		return {}
 	end,
 })
@@ -319,10 +325,20 @@ VirtualGame.Preload(Server.Services.NetService, {
 			table.insert(cueLog[payload], { ... })
 			return
 		end
-		table.insert(sent, { Player = player, Name = name, Payload = payload })
+		table.insert(sent, { Player = player, Name = name, Payload = payload, Args = { ... } })
 	end,
 	Notify = function() end,
 })
+-- The last `name` event sent to `player`.
+local function lastSent(player, name)
+	for index = #sent, 1, -1 do
+		local entry = sent[index]
+		if entry.Player == player and entry.Name == name then
+			return entry
+		end
+	end
+	return nil
+end
 local templates = {}
 for _, name in { "FirstLight", "SunkenRelay", "HollowDark", "HollowSpire", "VaultOfEchoes" } do
 	templates[name] = require(Server.MapBuilders[name .. "Builder"]).Build()
@@ -394,6 +410,11 @@ describe("Story mission: First Light", function()
 		run = ActivityService.GetRun(player)
 		expect(player:GetAttribute("InstanceId")).toBe(run.Id)
 		expect(near(chars[player].Position, marker(run, "PlayerStart").Position, 3)).toBe(true)
+		local state = lastSent(player, "ActivityState").Payload
+		expect(state.Destination).toBe("Frostreach")
+		expect(state.StartedAt).toBe(run.StartedAt)
+		expect(near(state.Intro.Start, marker(run, "PlayerStart").Position, 1)).toBe(true)
+		expect(near(state.Intro.Target, marker(run, "Wreck").Position, 1)).toBe(true)
 		advance(0.5)
 		expect(run.ZoneIndex).toBe(1)
 		expect(run.Folder:GetAttribute("ZoneName")).toBe("The Crash Site")
@@ -417,8 +438,13 @@ describe("Story mission: First Light", function()
 	it("sends the next wave at 80% cleared, by dropship", function()
 		local list = alive(run.Id)
 		for index = 1, 4 do
-			kill(list[index])
+			kill(list[index], player)
 		end
+		local line = lastSent(player, "KillFeed")
+		expect(line.Payload).toBe("Kill")
+		expect(line.Args[1]).toBe("Tester")
+		expect(line.Args[2]).toBe(list[4].Def.Name)
+		expect(line.Args[3]).toBe(list[4].Def.Tier)
 		advance(0.5)
 		expect(run.Folder:GetAttribute("Wave")).toBe("1/2") -- 4 of 6 isn't 80% yet
 		kill(list[5])
@@ -447,6 +473,10 @@ describe("Story mission: First Light", function()
 	it("respawns a dead player at the checkpoint after 5 seconds", function()
 		FakeCharacters.Kill(player)
 		expect(statuses[player].Delay).toBe(5)
+		local line = lastSent(player, "KillFeed")
+		expect(line.Payload).toBe("Death")
+		expect(line.Args[1]).toBe("Scrap Warden")
+		expect(line.Args[2]).toBe("Tester")
 		advance(4)
 		expect(FakeCharacters.IsAlive(player)).toBe(false)
 		advance(1.5)
@@ -577,7 +607,9 @@ describe("Story mission: First Light", function()
 		advance(0.5)
 		expect(boss.Immune).toBe(false)
 		expect(boss.HealthFloor).toBe(0)
-		kill(boss)
+		kill(boss, player)
+		expect(lastSent(player, "KillFeed").Payload).toBe("Boss")
+		expect(lastSent(player, "KillFeed").Args[2]).toBe(boss.Def.Name)
 		advance(0.5)
 		expect(cues.BossDeath).toBe(1)
 		expect(run.Status).toBe("Complete")
@@ -591,6 +623,14 @@ describe("Story mission: First Light", function()
 		prompt.Triggered:Fire(player)
 		expect(#completions).toBe(1)
 		expect(completions[1].Info.Activity.Id).toBe("STORY_01")
+		-- The Mission Complete screen's numbers.
+		local summary = completions[1].Info.Summary
+		expect(summary.Kind).toBe("Story")
+		expect(summary.Elapsed).toBe(run.Folder:GetAttribute("Elapsed"))
+		expect(summary.Kills).toBe(5)
+		expect(summary.Deaths).toBe(1)
+		expect(summary.FireteamKills).toBe(5)
+		expect(summary.Score).toBeNil()
 	end)
 
 	it("returns the fireteam to the hub and cleans up", function()
@@ -691,6 +731,9 @@ describe("Nightfall: Hollow Spire", function()
 		local info = completions[#completions].Info
 		expect(info.Difficulty.Id).toBe("Legend")
 		expect(info.BonusDrops).toBe(1)
+		expect(info.Summary.Kind).toBe("Nightfall")
+		expect(info.Summary.Medal).toBe("Gold")
+		expect(info.Summary.Score).toBe(run.Score)
 	end)
 end)
 
@@ -938,6 +981,16 @@ describe("Raid: every encounter, solo", function()
 		expect(claimed.THE_ECHO_CHAMBER).toBe(1)
 		expect(claimed.ECHO_SOVEREIGN).toBe(1)
 		expect(claimed.THE_DESCENT).toBeNil()
+		-- Only the last chest carries the Mission Complete summary.
+		for _, entry in completions do
+			if entry.Player == player and entry.Info.Encounter then
+				local last = entry.Info.Encounter.Id == "ECHO_SOVEREIGN"
+				expect(entry.Info.Summary ~= nil).toBe(last)
+				if last then
+					expect(entry.Info.Summary.Kind).toBe("Raid")
+				end
+			end
+		end
 	end)
 end)
 
@@ -979,6 +1032,10 @@ describe("Raid: Vault of Echoes, fireteam", function()
 		local prompt = ghost:FindFirstChildOfClass("ProximityPrompt")
 		expect(prompt.HoldDuration).toBe(3)
 		prompt.Triggered:Fire(friend)
+		local line = lastSent(leader, "KillFeed")
+		expect(line.Payload).toBe("Revive")
+		expect(line.Args[1]).toBe("Friend")
+		expect(line.Args[2]).toBe("Leader")
 		advance(0.2)
 		expect(FakeCharacters.IsAlive(leader)).toBe(true)
 		expect(run.Map:FindFirstChild("Ghost_Leader", true)).toBeNil()

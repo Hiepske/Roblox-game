@@ -11,6 +11,7 @@
 	  * The camera is pulled in when a wall is behind the player.
 	  * Menus and the death screen release the mouse.
 	  * Gamepad right stick and touch-drag (right half of the screen) also look around.
+	  * SetOverride hands the camera to a cutscene (the mission intro).
 ]]
 
 local Players = game:GetService("Players")
@@ -41,6 +42,7 @@ local currentOffset = HIP_OFFSET
 local trackedCharacter: Model? = nil
 local gamepadLook = Vector2.zero
 local touchLook: InputObject? = nil
+local overridden = false
 local collisionParams = RaycastParams.new()
 collisionParams.FilterType = Enum.RaycastFilterType.Exclude
 
@@ -56,6 +58,15 @@ function CameraController.SetAiming(isAiming: boolean, fov: number?)
 	aiming = isAiming
 	if fov then
 		aimFov = fov
+	end
+end
+
+-- While overridden the camera is left alone; afterwards it snaps back
+-- behind the character, facing where the character faces.
+function CameraController.SetOverride(active: boolean)
+	overridden = active
+	if not active then
+		trackedCharacter = nil
 	end
 end
 
@@ -81,6 +92,9 @@ function CameraController.GetAimRay(): (Vector3, Vector3)
 end
 
 local function update(dt: number)
+	if overridden then
+		return
+	end
 	local camera = Workspace.CurrentCamera
 	local character = player.Character
 	local root = if character then character:FindFirstChild("HumanoidRootPart") else nil

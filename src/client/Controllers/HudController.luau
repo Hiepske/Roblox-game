@@ -9,10 +9,11 @@
 	  * shield (blue) and health bars, character power
 	  * objective tracker, run timer and score, active modifiers
 	  * boss health bar, raid phase banner and enrage timer
-	  * waypoint marker for travel/defend objectives
+	  * (the objective waypoint is WaypointController's)
 	  * death screen (grey) with the respawn countdown or revive message
 	  * toast notifications and a key hint line
-	Roblox's backpack and health bar are hidden (no Tools are used).
+	Roblox's backpack and health bar are hidden (no Tools are used). The HUD
+	hides while the mission intro plays.
 ]]
 
 local Players = game:GetService("Players")
@@ -25,6 +26,7 @@ local Workspace = game:GetService("Workspace")
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Config = Shared:WaitForChild("Config")
 local ElementConfig = require(Config:WaitForChild("ElementConfig"))
+local PresentationConfig = require(Config:WaitForChild("PresentationConfig"))
 local RarityConfig = require(Config:WaitForChild("RarityConfig"))
 local PowerMath = require(Shared:WaitForChild("Power"):WaitForChild("PowerMath"))
 local MissionRules = require(Shared:WaitForChild("Activities"):WaitForChild("MissionRules"))
@@ -36,6 +38,7 @@ local UI = require(script.Parent.Parent.UI.UI)
 local UIState = require(script.Parent.Parent.UI.UIState)
 local ActivityController = require(script.Parent.ActivityController)
 local DataController = require(script.Parent.DataController)
+local MusicController = require(script.Parent.MusicController)
 local WeaponController = require(script.Parent.WeaponController)
 
 local HudController = {}
@@ -47,11 +50,7 @@ local SHIELD_COLOR = Color3.fromRGB(110, 200, 255)
 local HEALTH_COLOR = Color3.fromRGB(235, 240, 245)
 local LOW_HEALTH_COLOR = Color3.fromRGB(255, 90, 80)
 local BOSS_COLOR = Color3.fromRGB(245, 200, 60)
-local MEDAL_COLORS: { [string]: Color3 } = {
-	Gold = Color3.fromRGB(255, 205, 70),
-	Silver = Color3.fromRGB(210, 220, 230),
-	Bronze = Color3.fromRGB(215, 140, 80),
-}
+local MEDAL_COLORS = PresentationConfig.MedalColors
 
 type Refs = {
 	Gui: ScreenGui,
@@ -99,8 +98,7 @@ local refs: Refs
 local hitMarkerUntil = 0
 local deathStatus: { Alive: boolean, RespawnAt: number?, Message: string } = { Alive = true, Message = "" }
 local grey: ColorCorrectionEffect? = nil
-local waypointPart: Part? = nil
-local waypointLabel: TextLabel? = nil
+local hudGui: ScreenGui? = nil
 local shownThresholds = ""
 local IS_STUDIO = RunService:IsStudio()
 
@@ -133,6 +131,7 @@ end
 
 local function build()
 	local gui = UI.Screen("HUD", 5)
+	hudGui = gui
 
 	-- Crosshair: four lines around the center plus a dot.
 	local crosshair = UI.Make("Frame", {
@@ -763,9 +762,6 @@ local function updateActivity()
 		refs.ChargeBar.Visible = false
 		refs.EchoCharge.Visible = false
 		refs.Banner.Visible = false
-		if waypointPart then
-			waypointPart.Parent = nil
-		end
 		return
 	end
 	local serverNow = Workspace:GetServerTimeNow()
@@ -874,6 +870,7 @@ local function updateActivity()
 			lines,
 			`Total {MissionRules.FormatTime(total)}  ·  zone {attr("ZoneIndex") or "?"}/{attr("ZoneCount") or "?"}`
 		)
+		table.insert(lines, `Music: {MusicController.GetState()}`)
 		refs.ZoneDebug.Text = table.concat(lines, "\n")
 	end
 
@@ -914,47 +911,6 @@ local function updateActivity()
 		refs.Banner.Text = "FIRETEAM WIPED"
 	else
 		refs.Banner.Visible = false
-	end
-
-	-- Waypoint.
-	local hasWaypoint = attr("HasWaypoint") == true and status == "Active"
-	local waypoint = attr("Waypoint")
-	if hasWaypoint and typeof(waypoint) == "Vector3" then
-		if waypointPart == nil then
-			local part = Instance.new("Part")
-			part.Name = "Waypoint"
-			part.Anchored = true
-			part.CanCollide = false
-			part.CanQuery = false
-			part.CanTouch = false
-			part.Transparency = 1
-			part.Size = Vector3.new(1, 1, 1)
-			local billboard = Instance.new("BillboardGui")
-			billboard.AlwaysOnTop = true
-			billboard.Size = UDim2.fromOffset(120, 40)
-			billboard.LightInfluence = 0
-			local label = Instance.new("TextLabel")
-			label.BackgroundTransparency = 1
-			label.Size = UDim2.fromScale(1, 1)
-			label.Font = Theme.Fonts.Title
-			label.TextSize = 14
-			label.TextColor3 = Theme.Colors.Accent
-			label.TextStrokeTransparency = 0.4
-			label.Parent = billboard
-			billboard.Parent = part
-			waypointPart = part
-			waypointLabel = label
-		end
-		local part = waypointPart :: Part
-		part.Position = waypoint + Vector3.new(0, 6, 0)
-		part.Parent = Workspace
-		local root = if player.Character then player.Character:FindFirstChild("HumanoidRootPart") else nil
-		local distance = if root and root:IsA("BasePart") then (root.Position - waypoint).Magnitude else 0
-		if waypointLabel then
-			waypointLabel.Text = `◆\n{math.floor(distance)}m`
-		end
-	elseif waypointPart then
-		waypointPart.Parent = nil
 	end
 end
 
@@ -1041,6 +997,11 @@ function HudController.Start()
 	grey = correction
 
 	RunService.RenderStepped:Connect(function()
+		-- The mission intro owns the screen while it plays.
+		local cinematic = UIState.IsCinematic()
+		if hudGui and hudGui.Enabled == cinematic then
+			hudGui.Enabled = not cinematic
+		end
 		updateCrosshair()
 		updateWeapon()
 		updateVitals()

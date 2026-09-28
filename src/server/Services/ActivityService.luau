@@ -112,6 +112,35 @@ local function syncStats(run: Run, player: Player)
 	setAttr(run, `Deaths_{player.UserId}`, stats.Deaths)
 end
 
+-- What the Mission Complete screen shows for `player`.
+local function summaryFor(run: Run, player: Player): LootService.RunSummary
+	local stats = statsOf(run, player)
+	local teamKills, teamDeaths = 0, 0
+	for _, other in run.Stats do
+		teamKills += other.Kills
+		teamDeaths += other.Deaths
+	end
+	return {
+		Activity = run.Activity.Name,
+		Kind = run.Activity.Type,
+		Elapsed = run.Elapsed or now() - run.StartedAt,
+		Kills = stats.Kills,
+		Deaths = stats.Deaths,
+		FireteamKills = teamKills,
+		FireteamDeaths = teamDeaths,
+		Medal = run.Medal,
+		Score = if run.Activity.Scored then run.Score else nil,
+	}
+end
+
+-- Kill feed line for everyone in the run: ("Kill", player, enemy, tier),
+-- ("Boss", player, boss), ("Death", cause, player), ("Revive", reviver, player).
+local function feed(run: Run, kind: string, actor: string, target: string, tier: string?)
+	for _, member in run.Players do
+		NetService.FireClient(member, "KillFeed", kind, actor, target, tier)
+	end
+end
+
 -- Client sync ------------------------------------------------------------------------
 
 local function modifierList(run: Run): { { Name: string, Description: string } }
@@ -123,6 +152,24 @@ local function modifierList(run: Run): { { Name: string, Description: string } }
 		end
 	end
 	return list
+end
+
+-- The intro fly-over: from the start toward the first place players are sent.
+local function introShot(run: Run): { Start: Vector3, Target: Vector3 }?
+	local start = MissionKit.Marker(run, "PlayerStart")
+	if start == nil then
+		return nil
+	end
+	local from = start.CFrame.Position
+	for _, entry in run.Zones do
+		for _, step in entry.Zone.Steps do
+			local target = MissionKit.Marker(run, step.Target)
+			if target and (target.CFrame.Position - from).Magnitude > 30 then
+				return { Start = from, Target = target.CFrame.Position }
+			end
+		end
+	end
+	return nil
 end
 
 local function sendState(player: Player)
@@ -142,6 +189,9 @@ local function sendState(player: Player)
 		Map = run.Activity.Map or "Hub",
 		Modifiers = modifierList(run),
 		Scored = run.Activity.Scored == true,
+		Destination = ActivityRules.DestinationName(run.Activity),
+		StartedAt = run.StartedAt,
+		Intro = introShot(run),
 	})
 end
 
@@ -178,7 +228,10 @@ local function claimEncounter(run: Run, player: Player, encounter: ActivityConfi
 		return
 	end
 	claims[player] = true
-	local ok, err = pcall(LootService.AwardEncounter, player, run.Activity, encounter)
+	-- The last chest of a finished raid doubles as its Mission Complete screen.
+	local last = run.Cleared[#run.Cleared]
+	local summary = if run.Status == "Complete" and last == encounter then summaryFor(run, player) else nil
+	local ok, err = pcall(LootService.AwardEncounter, player, run.Activity, encounter, summary)
 	if not ok then
 		warn(`[ActivityService] Encounter rewards failed for {player.Name}: {err}`)
 	end
@@ -226,6 +279,7 @@ local function claimRewards(run: Run, player: Player)
 		Encounters = run.Cleared,
 		Title = title,
 		BonusDrops = if run.Medal == "Gold" then 1 else 0,
+		Summary = summaryFor(run, player),
 	}
 	local ok, err = pcall(LootService.AwardCompletion, player, info)
 	if not ok then
@@ -326,6 +380,7 @@ complete = function(run: Run)
 	run.Status = "Complete"
 	run.Token += 1
 	local elapsed = now() - run.StartedAt
+	run.Elapsed = elapsed
 	if run.Activity.Scored then
 		local score = CombatConfig.Score
 		local bonus = math.max(0, score.ParSeconds - elapsed) * score.PointsPerSecondUnderPar
@@ -434,6 +489,7 @@ local function revive(run: Run, target: Player, reviver: Player)
 		return
 	end
 	removeGhost(run, target)
+	feed(run, "Revive", reviver.DisplayName, target.DisplayName)
 	NetService.Notify(target, `Revived by {reviver.DisplayName}`, "Success")
 	NetService.Notify(reviver, `You revived {target.DisplayName}`, "Success")
 	task.spawn(CharacterService.Spawn, target, CFrame.new(ghost.Position + Vector3.new(0, 3, 0)))
@@ -482,6 +538,7 @@ local function onDeath(player: Player, position: Vector3): CharacterService.Deat
 	run.Deaths += 1
 	statsOf(run, player).Deaths += 1
 	syncStats(run, player)
+	feed(run, "Death", CharacterService.LastDamageSource(player) or "", player.DisplayName)
 	if run.Status == "Wiped" then
 		return { Delay = nil, Message = "Fireteam wiped. The encounter restarts." }
 	elseif run.Status ~= "Active" then
@@ -804,6 +861,12 @@ local function onEnemyKilled(enemy: Enemy, killer: Player?)
 	if killer and runOfPlayer[killer] == run then
 		statsOf(run, killer).Kills += 1
 		syncStats(run, killer)
+	end
+	local def = enemy.Def
+	if def.Tier == "Boss" then
+		feed(run, "Boss", if killer then killer.DisplayName else "", def.Name, def.Tier)
+	elseif killer then
+		feed(run, "Kill", killer.DisplayName, def.Name, if def.Role == "Object" then "Object" else def.Tier)
 	end
 	if run.Activity.Scored then
 		local score = CombatConfig.Score

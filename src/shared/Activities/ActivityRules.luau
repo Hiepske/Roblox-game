@@ -79,6 +79,12 @@ function ActivityRules.CheckUnlock(data: Types.ProfileData, activity: ActivityDe
 end
 
 -- Minimum fireteam size to launch (the raid uses GameConfig's testing value).
+-- The display name of an activity's destination ("Kessler Drift").
+function ActivityRules.DestinationName(activity: ActivityDef): string
+	local destination = ActivityConfig.Destinations[activity.Destination]
+	return if destination then destination.Name else activity.Destination
+end
+
 function ActivityRules.MinPlayers(activity: ActivityDef): number
 	if activity.Type == "Raid" then
 		return GameConfig.Activities.RAID_MIN_PLAYERS

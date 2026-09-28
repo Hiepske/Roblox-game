@@ -9,6 +9,7 @@ local EnemyConfig = require(Shared.Config.EnemyConfig)
 local ClassConfig = require(Shared.Config.ClassConfig)
 local PowerConfig = require(Shared.Config.PowerConfig)
 local AssetIds = require(Shared.Config.AssetIds)
+local PresentationConfig = require(Shared.Config.PresentationConfig)
 
 describe("ConfigValidator", function()
 	it("finds no problems in the shipped configs", function()
@@ -152,5 +153,29 @@ describe("Config immutability", function()
 		expect(AssetIds.Get(0)).toBe("")
 		expect(AssetIds.Get(123)).toBe("rbxassetid://123")
 		expect(AssetIds.IsPlaceholder(AssetIds.Sounds.UI.Click)).toBeTruthy()
+	end)
+end)
+
+describe("Presentation", function()
+	it("has loading art slots and placeholder colors for every activity map", function()
+		for _, activity in ActivityConfig.List do
+			local map = activity.Map
+			if map then
+				expect(AssetIds.Images.Loading[map] ~= nil).toBe(true)
+				expect(#PresentationConfig.Loading.Palettes[map]).toBe(3)
+			end
+		end
+		expect(#PresentationConfig.Tips >= 10).toBe(true)
+	end)
+
+	it("names a completion headline and medal colors for every scored or completable type", function()
+		for _, activity in ActivityConfig.List do
+			if activity.Playable then
+				expect(PresentationConfig.CompleteTitles[activity.Type] ~= nil).toBe(true)
+			end
+			for medal in activity.Medals or {} do
+				expect(PresentationConfig.MedalColors[medal] ~= nil).toBe(true)
+			end
+		end
 	end)
 end)

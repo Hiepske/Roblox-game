@@ -26,7 +26,13 @@ export type ActivityInfo = {
 	Map: string,
 	Modifiers: { { Name: string, Description: string } },
 	Scored: boolean,
+	Destination: string?,
+	StartedAt: number?,
+	-- The intro fly-over: from the start toward the first objective.
+	Intro: IntroShot?,
 }
+
+export type IntroShot = { Start: Vector3, Target: Vector3 }
 
 local ActivityController = {}
 
@@ -45,6 +51,13 @@ end
 -- The run's live attribute folder (nil in the hub or while it replicates).
 function ActivityController.GetFolder(): Folder?
 	return folder
+end
+
+local function parseIntro(intro: any): IntroShot?
+	if type(intro) ~= "table" or typeof(intro.Start) ~= "Vector3" or typeof(intro.Target) ~= "Vector3" then
+		return nil
+	end
+	return { Start = intro.Start, Target = intro.Target }
 end
 
 local function parse(state: any): ActivityInfo
@@ -70,6 +83,9 @@ local function parse(state: any): ActivityInfo
 		Map = if type(state.Map) == "string" then state.Map else "Hub",
 		Modifiers = modifiers,
 		Scored = state.Scored == true,
+		Destination = if type(state.Destination) == "string" then state.Destination else nil,
+		StartedAt = if type(state.StartedAt) == "number" then state.StartedAt else nil,
+		Intro = parseIntro(state.Intro),
 	}
 end
 

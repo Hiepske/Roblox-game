@@ -1,9 +1,10 @@
 --!strict
 --[[
 	UIState
-	Tracks which full-screen menus are open and whether the player is dead,
-	so the camera and weapons know when to release the mouse and stop
-	shooting. Only one menu is open at a time.
+	Tracks which full-screen menus are open, whether the player is dead and
+	whether a cutscene (the mission intro) is playing, so the camera and
+	weapons know when to release the mouse and stop shooting. Only one menu
+	is open at a time.
 ]]
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -14,6 +15,7 @@ local UIState = {}
 
 local openMenu: string? = nil
 local dead = false
+local cinematic = false
 
 -- Fires with the name of the open menu (nil when all menus close).
 local menuChanged: Signal.Signal<string?> = Signal.new()
@@ -53,9 +55,18 @@ function UIState.IsDead(): boolean
 	return dead
 end
 
+-- A cutscene owns the camera; the HUD hides and weapons stay quiet.
+function UIState.SetCinematic(isCinematic: boolean)
+	cinematic = isCinematic
+end
+
+function UIState.IsCinematic(): boolean
+	return cinematic
+end
+
 -- True when gameplay input (aiming, shooting) should be ignored.
 function UIState.InputBlocked(): boolean
-	return openMenu ~= nil or dead
+	return openMenu ~= nil or dead or cinematic
 end
 
 return UIState

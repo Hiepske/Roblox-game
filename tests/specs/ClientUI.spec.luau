@@ -1,7 +1,8 @@
 -- Smoke test for the client screens: builds the HUD, Director, character
--- screen and loot screen with Lune's real Roblox Instances (which reject
--- unknown properties and wrong value types), feeds them a starter save,
--- weapon state, an activity run and a loot award, and runs a HUD frame.
+-- screen, loot screen, loading screen, mission intro, waypoint, kill feed
+-- and music with Lune's real Roblox Instances (which reject unknown
+-- properties and wrong value types), feeds them a starter save, weapon
+-- state, an activity run and a loot award, and runs HUD frames.
 local roblox = require("@lune/roblox")
 
 -- Minimal engine stand-ins ----------------------------------------------------------
@@ -53,9 +54,20 @@ local localPlayer = {
 }
 
 local renderStepped = signal()
+-- Code that waits a frame (the intro's camera loop) yields for real.
+renderStepped.Wait = function()
+	task.wait()
+end
+local heartbeat = signal()
 local bound = {}
 local realCamera = roblox.Instance.new("Camera")
-local camera = setmetatable({ ViewportSize = roblox.Vector2.new(1920, 1080) }, { __index = proxyOf(realCamera) })
+local projected = { roblox.Vector3.new(960, 540, 10), true }
+local camera = setmetatable({
+	ViewportSize = roblox.Vector2.new(1920, 1080),
+	WorldToViewportPoint = function()
+		return projected[1], projected[2]
+	end,
+}, { __index = proxyOf(realCamera) })
 Proxy.Register(camera, realCamera)
 local serverNow = 1000
 
@@ -63,6 +75,7 @@ VirtualGame.SetGlobal("Instance", ProxyInstance)
 VirtualGame.SetGlobal("ColorSequence", roblox.ColorSequence)
 VirtualGame.SetGlobal("ColorSequenceKeypoint", roblox.ColorSequenceKeypoint)
 VirtualGame.SetGlobal("NumberSequence", roblox.NumberSequence)
+VirtualGame.SetGlobal("NumberSequenceKeypoint", roblox.NumberSequenceKeypoint)
 VirtualGame.SetGlobal("TweenInfo", {
 	new = function()
 		return {}
@@ -81,7 +94,7 @@ VirtualGame.Services.Players = {
 }
 VirtualGame.Services.RunService = {
 	RenderStepped = renderStepped,
-	Heartbeat = signal(),
+	Heartbeat = heartbeat,
 	BindToRenderStep = function(_, name, _priority, fn)
 		bound[name] = fn
 	end,
@@ -105,7 +118,11 @@ VirtualGame.Services.UserInputService = {
 VirtualGame.Services.StarterGui = { SetCoreGuiEnabled = function() end }
 VirtualGame.Services.TweenService = {
 	Create = function()
-		return { Play = function() end }
+		return {
+			Play = function() end,
+			Cancel = function() end,
+			Completed = { Wait = function() end, Connect = function() end },
+		}
 	end,
 }
 VirtualGame.Services.SoundService = roblox.Instance.new("Folder")
@@ -152,8 +169,7 @@ end
 local runFolder = roblox.Instance.new("Folder")
 runFolder.Name = "R1"
 local liveRuns = {
-	WaitForChild = function(_, name)
-		assert(name == "R1", name)
+	WaitForChild = function()
 		return runFolder
 	end,
 }
@@ -174,6 +190,12 @@ local DirectorController = require(Controllers.DirectorController)
 local InventoryController = require(Controllers.InventoryController)
 local LootController = require(Controllers.LootController)
 local CueController = require(Controllers.CueController)
+local CameraController = require(Controllers.CameraController)
+local LoadingController = require(Controllers.LoadingController)
+local IntroController = require(Controllers.IntroController)
+local MusicController = require(Controllers.MusicController)
+local WaypointController = require(Controllers.WaypointController)
+local KillFeedController = require(Controllers.KillFeedController)
 local ItemRoller = require(Shared.Items.ItemRoller)
 
 local counter = 0
@@ -207,14 +229,38 @@ local function guiNamed(name)
 	return nil
 end
 
+-- The first TextLabel under `root` whose text contains `text`.
+local function findText(root, text)
+	for _, descendant in root:GetDescendants() do
+		if descendant:IsA("TextLabel") and string.find(descendant.Text, text, 1, true) then
+			return descendant
+		end
+	end
+	return nil
+end
+
+local function waitFor(condition, seconds)
+	local started = os.clock()
+	while not condition() and os.clock() - started < seconds do
+		task.wait()
+	end
+	return condition()
+end
+
 describe("Client screens", function()
 	it("initialize and start", function()
 		for _, controller in
 			{
 				DataController,
 				ActivityController,
+				LoadingController,
+				CameraController,
+				IntroController,
 				WeaponController,
+				MusicController,
 				HudController,
+				WaypointController,
+				KillFeedController,
 				DirectorController,
 				InventoryController,
 				LootController,
@@ -226,8 +272,14 @@ describe("Client screens", function()
 		for _, controller in
 			{
 				ActivityController,
+				LoadingController,
+				CameraController,
+				IntroController,
 				WeaponController,
+				MusicController,
 				HudController,
+				WaypointController,
+				KillFeedController,
 				DirectorController,
 				InventoryController,
 				LootController,
@@ -238,7 +290,9 @@ describe("Client screens", function()
 		end
 		emit("DataSnapshot", profile)
 		expect(DataController.GetData()).toBe(profile)
-		for _, name in { "HUD", "Director", "Inventory", "LootScreen" } do
+		for _, name in
+			{ "HUD", "Director", "Inventory", "LootScreen", "LoadingScreen", "MissionIntro", "Waypoint", "KillFeed" }
+		do
 			expect(guiNamed(name) ~= nil).toBe(true)
 		end
 	end)
@@ -317,6 +371,27 @@ describe("Client screens", function()
 		expect(debug.Visible).toBe(true)
 		expect(string.find(debug.Text, "Outpost Courtyard  2:11", 1, true) ~= nil).toBe(true)
 		expect(string.find(debug.Text, "Relay Terminal  0:10", 1, true) ~= nil).toBe(true)
+		expect(string.find(debug.Text, "Music:", 1, true) ~= nil).toBe(true)
+
+		-- The waypoint: a diamond on screen, an arrow at the edge off screen.
+		local waypoint = guiNamed("Waypoint"):FindFirstChildOfClass("Frame")
+		expect(waypoint.Visible).toBe(true)
+		expect(findText(waypoint, "0m") ~= nil).toBe(true)
+		expect(findText(waypoint, "▲").Visible).toBe(false)
+		projected[1], projected[2] = roblox.Vector3.new(-400, 300, -5), false
+		frame()
+		expect(findText(waypoint, "▲").Visible).toBe(true)
+		local x, y = waypoint.Position.X.Offset, waypoint.Position.Y.Offset
+		expect(x >= 0 and x <= 1920 and y >= 0 and y <= 1080).toBe(true)
+		projected[1], projected[2] = roblox.Vector3.new(960, 540, 10), true
+
+		-- Music follows the boss bar, then drops back to exploring.
+		heartbeat:_fire(0.1)
+		expect(MusicController.GetState()).toBe("Boss")
+		runFolder:SetAttribute("BossActive", false)
+		heartbeat:_fire(0.1)
+		expect(MusicController.GetState()).toBe("Explore")
+		runFolder:SetAttribute("BossActive", true)
 		runFolder:SetAttribute("Status", "Complete")
 		runFolder:SetAttribute("ReturnAt", 1012)
 		frame()
@@ -409,5 +484,124 @@ describe("Client screens", function()
 		UIState.CloseMenu("Loot")
 		emit("LootAwarded", { Screen = false, Awards = { { Item = item, Location = "Postmaster", Reason = "Drop" } } })
 		frame()
+	end)
+
+	it("turns the loot screen into the Mission Complete screen with the run summary", function()
+		local item = ItemRoller.Roll("W_LAST_EMBER", 354, VirtualGame.Random.new(9), uid(), 0, "Random")
+		emit("LootAwarded", {
+			Title = "The Hollow Spire (Legend)",
+			Screen = true,
+			Awards = { { Item = item, Location = "Inventory", Reason = "Drop" } },
+			Power = 470,
+			HighestPower = 470,
+			Summary = {
+				Activity = "The Hollow Spire",
+				Kind = "Nightfall",
+				Elapsed = 452,
+				Kills = 41,
+				Deaths = 2,
+				FireteamKills = 77,
+				FireteamDeaths = 3,
+				Medal = "Gold",
+				Score = 51230,
+			},
+		})
+		local screen = guiNamed("LootScreen")
+		expect(screen.Enabled).toBe(true)
+		expect(findText(screen, "NIGHTFALL COMPLETE") ~= nil).toBe(true)
+		expect(findText(screen, "7:32") ~= nil).toBe(true)
+		expect(findText(screen, "FIRETEAM KILLS") ~= nil).toBe(true)
+		expect(findText(screen, "GOLD") ~= nil).toBe(true)
+		expect(findText(screen, "51230") ~= nil).toBe(true)
+		UIState.CloseMenu("Loot")
+		-- A raid encounter chest has no summary.
+		emit("LootAwarded", {
+			Title = "Vault of Echoes: The Gate",
+			Screen = true,
+			Awards = {},
+			Power = 470,
+			HighestPower = 470,
+		})
+		expect(findText(screen, "VAULT OF ECHOES: THE GATE") ~= nil).toBe(true)
+		expect(findText(screen, "FIRETEAM KILLS")).toBeNil()
+		UIState.CloseMenu("Loot")
+	end)
+
+	it("lists kills, boss defeats, deaths and revives in the kill feed, newest last", function()
+		emit("KillFeed", "Kill", "Tester", "Rustborn Scavenger", "Minor")
+		emit("KillFeed", "Boss", "Friend", "Scrap Warden", "Boss")
+		emit("KillFeed", "Death", "Laser", "Tester")
+		emit("KillFeed", "Revive", "Friend", "Tester")
+		emit("KillFeed", "Nonsense", 5, nil)
+		local feed = guiNamed("KillFeed")
+		local list = feed:FindFirstChildOfClass("Frame")
+		local function lines()
+			local count = 0
+			for _, child in list:GetChildren() do
+				if child:IsA("Frame") then
+					count += 1
+				end
+			end
+			return count
+		end
+		expect(lines()).toBe(4)
+		expect(findText(feed, "SCRAP WARDEN") ~= nil).toBe(true)
+		expect(findText(feed, "revived") ~= nil).toBe(true)
+		for _ = 1, 5 do
+			emit("KillFeed", "Kill", "Friend", "Concord Sentinel", "Major")
+		end
+		expect(lines()).toBe(6)
+	end)
+
+	it("covers a launch with the loading screen, then flies the intro camera", function()
+		LoadingController.Show("First Light", "Frostreach", "FirstLight")
+		local loading = guiNamed("LoadingScreen")
+		expect(loading.Enabled).toBe(true)
+		expect(findText(loading, "FIRST LIGHT") ~= nil).toBe(true)
+		expect(findText(loading, "TIP") ~= nil).toBe(true)
+		expect(findText(loading, "AssetIds.Images.Loading.FirstLight") ~= nil).toBe(true)
+
+		runFolder:SetAttribute("Status", "Active")
+		emit("ActivityState", {
+			InActivity = true,
+			RunId = "R2",
+			ActivityId = "STORY_01",
+			Name = "First Light",
+			Type = "Story",
+			Difficulty = nil,
+			Power = 350,
+			Map = "FirstLight",
+			Modifiers = {},
+			Scored = false,
+			Destination = "Frostreach",
+			StartedAt = serverNow,
+			Intro = { Start = roblox.Vector3.new(0, 5, 0), Target = roblox.Vector3.new(0, 5, -140) },
+		})
+		expect(waitFor(function()
+			return not LoadingController.IsShowing()
+		end, 4)).toBe(true)
+		expect(loading.Enabled).toBe(false)
+		expect(waitFor(UIState.IsCinematic, 2)).toBe(true)
+		frame()
+		expect(guiNamed("HUD").Enabled).toBe(false)
+		expect(guiNamed("MissionIntro").Enabled).toBe(true)
+		expect(findText(guiNamed("MissionIntro"), "FROSTREACH") ~= nil).toBe(true)
+		expect(UIState.InputBlocked()).toBe(true)
+		-- Any key skips it and hands the camera and HUD back.
+		game:GetService("UserInputService").InputBegan:_fire({
+			UserInputType = Enum.UserInputType.Keyboard,
+			KeyCode = Enum.KeyCode.Unknown,
+		}, false)
+		expect(waitFor(function()
+			return not IntroController.IsPlaying()
+		end, 2)).toBe(true)
+		expect(UIState.IsCinematic()).toBe(false)
+		frame()
+		expect(guiNamed("HUD").Enabled).toBe(true)
+
+		-- Leaving covers the trip back to the Spire.
+		emit("ActivityState", { InActivity = false, Map = "Hub" })
+		expect(LoadingController.IsShowing()).toBe(true)
+		expect(findText(loading, "THE SPIRE") ~= nil).toBe(true)
 	end)
 end)

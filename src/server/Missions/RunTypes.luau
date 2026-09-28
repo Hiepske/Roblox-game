@@ -81,6 +81,8 @@ export type Run = {
 	Rewarded: { [Player]: boolean },
 	-- Medal earned by the finish time ("Gold" | "Silver" | "Bronze").
 	Medal: string?,
+	-- Seconds from start to finish, once complete.
+	Elapsed: number?,
 	-- Kills everyone and restarts the encounter (set by ActivityService).
 	Wipe: (reason: string) -> (),
 	-- A raid encounter was cleared (set by ActivityService: its chest).

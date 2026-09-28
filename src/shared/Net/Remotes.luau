@@ -76,6 +76,9 @@ local Definitions: { [string]: RemoteDef } = {
 	WorldCue = { Kind = "Event", Direction = "ToClient" },
 	-- Server -> owner: alive/dead, respawn timer, revive state
 	PlayerStatus = { Kind = "Event", Direction = "ToClient" },
+	-- Server -> players in a run: (kind, actor, target, tier) kills, deaths,
+	-- revives and boss defeats for the kill feed
+	KillFeed = { Kind = "Event", Direction = "ToClient" },
 
 	-- Activities --------------------------------------------------------------------
 	-- Server -> players in an activity: objective tracker, timers, boss bar (nil in the hub)

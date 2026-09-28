@@ -2,10 +2,12 @@
 --[[
 	LootController
 	Shows gear the server awarded (LootAwarded):
-	  * end of an activity: a loot screen with one card per item, colored by
-	    rarity, with its power, why it dropped (Powerful, Pinnacle, raid
-	    exclusive) and whether it's an upgrade. "Equip upgrades" equips every
-	    reward that beats what you're wearing.
+	  * end of an activity: the Mission Complete screen. How the run went
+	    (time, your kills and deaths, the fireteam's, medal and score) over
+	    one card per item, colored by rarity, with its power, why it dropped
+	    (Powerful, Pinnacle, raid exclusive) and whether it's an upgrade.
+	    "Equip upgrades" equips every reward that beats what you're wearing.
+	    Raid encounter chests use the same screen without the run summary.
 	  * mid-activity drops: a toast per item.
 ]]
 
@@ -14,6 +16,7 @@ local UserInputService = game:GetService("UserInputService")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Config = Shared:WaitForChild("Config")
+local PresentationConfig = require(Config:WaitForChild("PresentationConfig"))
 local RarityConfig = require(Config:WaitForChild("RarityConfig"))
 local ItemCatalog = require(Shared:WaitForChild("Items"):WaitForChild("ItemCatalog"))
 local PowerMath = require(Shared:WaitForChild("Power"):WaitForChild("PowerMath"))
@@ -50,8 +53,14 @@ type AwardView = {
 local gui: ScreenGui
 local title: TextLabel
 local subtitle: TextLabel
+local statsRow: Frame
 local cards: Frame
 local current: { AwardView } = {}
+
+local function fmtTime(seconds: number): string
+	seconds = math.max(0, math.floor(seconds))
+	return string.format("%d:%02d", seconds // 60, seconds % 60)
+end
 
 local function nameOf(defId: string): (string, string)
 	local entry = ItemCatalog.Get(defId)
@@ -94,6 +103,65 @@ local function equippedPower(slot: string): number
 	return if item then item.Power else 0
 end
 
+local function stat(order: number, label: string, value: string, color: Color3?)
+	local block = UI.Panel({
+		LayoutOrder = order,
+		Size = UDim2.fromOffset(118, 64),
+		BackgroundColor3 = Theme.Colors.PanelRaised,
+		BackgroundTransparency = 0.2,
+	}, statsRow)
+	UI.Label({
+		Position = UDim2.fromOffset(0, 8),
+		Size = UDim2.new(1, 0, 0, 30),
+		Text = value,
+		Font = Theme.Fonts.Title,
+		TextSize = 26,
+		TextColor3 = color or Theme.Colors.Text,
+		TextXAlignment = Enum.TextXAlignment.Center,
+	}, block)
+	UI.Label({
+		Position = UDim2.fromOffset(0, 40),
+		Size = UDim2.new(1, 0, 0, 14),
+		Text = label,
+		Font = Theme.Fonts.Title,
+		TextSize = 11,
+		TextColor3 = Theme.Colors.TextDim,
+		TextXAlignment = Enum.TextXAlignment.Center,
+	}, block)
+end
+
+-- The run summary strip; false when the payload has none.
+local function showSummary(summary: any): boolean
+	for _, child in statsRow:GetChildren() do
+		if child:IsA("GuiObject") then
+			child:Destroy()
+		end
+	end
+	if type(summary) ~= "table" then
+		statsRow.Visible = false
+		return false
+	end
+	local kills = tonumber(summary.Kills) or 0
+	local teamKills = tonumber(summary.FireteamKills) or kills
+	stat(1, "TIME", fmtTime(tonumber(summary.Elapsed) or 0))
+	stat(2, "KILLS", tostring(kills), Theme.Colors.Accent)
+	stat(3, "DEATHS", tostring(tonumber(summary.Deaths) or 0), Theme.Colors.Error)
+	if teamKills ~= kills then
+		stat(4, "FIRETEAM KILLS", tostring(teamKills))
+		stat(5, "FIRETEAM DEATHS", tostring(tonumber(summary.FireteamDeaths) or 0))
+	end
+	local medal = summary.Medal
+	if type(medal) == "string" and medal ~= "" then
+		stat(6, "MEDAL", string.upper(medal), PresentationConfig.MedalColors[medal])
+	end
+	local score = tonumber(summary.Score)
+	if score then
+		stat(7, "SCORE", tostring(score), Theme.Colors.Power)
+	end
+	statsRow.Visible = true
+	return true
+end
+
 local function showScreen(payload: any, awards: { AwardView })
 	current = awards
 	for _, child in cards:GetChildren() do
@@ -101,12 +169,20 @@ local function showScreen(payload: any, awards: { AwardView })
 			child:Destroy()
 		end
 	end
-	title.Text = string.upper(tostring(payload.Title or "Rewards"))
+	local rewardsTitle = tostring(payload.Title or "Rewards")
 	local power = tonumber(payload.Power) or 0
 	local highest = tonumber(payload.HighestPower) or power
-	subtitle.Text = if highest > power
+	local powerLine = if highest > power
 		then `Power {power}  ·  equip your upgrades to reach {highest}`
 		else `Power {power}`
+	if showSummary(payload.Summary) then
+		local kind = tostring(payload.Summary.Kind)
+		title.Text = PresentationConfig.CompleteTitles[kind] or "ACTIVITY COMPLETE"
+		subtitle.Text = `{string.upper(rewardsTitle)}   ·   {powerLine}`
+	else
+		title.Text = string.upper(rewardsTitle)
+		subtitle.Text = powerLine
+	end
 
 	if #awards == 0 then
 		UI.Label({
@@ -208,29 +284,53 @@ local function build()
 		BackgroundTransparency = 0.25,
 		BorderSizePixel = 0,
 	}, gui) :: Frame
+	-- Title, subtitle, run summary, loot cards and buttons, stacked and
+	-- centered (the summary row collapses when there is none).
+	local content = UI.Make("Frame", {
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		Position = UDim2.fromScale(0.5, 0.48),
+		Size = UDim2.new(1, -80, 0, 0),
+		AutomaticSize = Enum.AutomaticSize.Y,
+		BackgroundTransparency = 1,
+	}, backdrop) :: Frame
+	UI.Make("UIListLayout", {
+		FillDirection = Enum.FillDirection.Vertical,
+		HorizontalAlignment = Enum.HorizontalAlignment.Center,
+		SortOrder = Enum.SortOrder.LayoutOrder,
+		Padding = UDim.new(0, 12),
+	}, content)
 	title = UI.Label({
-		AnchorPoint = Vector2.new(0.5, 0),
-		Position = UDim2.fromScale(0.5, 0.18),
+		LayoutOrder = 1,
 		Size = UDim2.new(1, 0, 0, 40),
 		Font = Theme.Fonts.Title,
 		TextSize = 34,
 		TextColor3 = Theme.Colors.Power,
 		TextXAlignment = Enum.TextXAlignment.Center,
-	}, backdrop)
+	}, content)
 	subtitle = UI.Label({
-		AnchorPoint = Vector2.new(0.5, 0),
-		Position = UDim2.new(0.5, 0, 0.18, 44),
+		LayoutOrder = 2,
 		Size = UDim2.new(1, 0, 0, 22),
 		TextSize = 17,
 		TextColor3 = Theme.Colors.TextDim,
 		TextXAlignment = Enum.TextXAlignment.Center,
-	}, backdrop)
-	cards = UI.Make("Frame", {
-		AnchorPoint = Vector2.new(0.5, 0),
-		Position = UDim2.fromScale(0.5, 0.34),
-		Size = UDim2.new(1, -80, 0, 160),
+	}, content)
+	statsRow = UI.Make("Frame", {
+		LayoutOrder = 3,
+		Size = UDim2.new(1, 0, 0, 64),
 		BackgroundTransparency = 1,
-	}, backdrop) :: Frame
+		Visible = false,
+	}, content) :: Frame
+	UI.Make("UIListLayout", {
+		FillDirection = Enum.FillDirection.Horizontal,
+		HorizontalAlignment = Enum.HorizontalAlignment.Center,
+		SortOrder = Enum.SortOrder.LayoutOrder,
+		Padding = UDim.new(0, 10),
+	}, statsRow)
+	cards = UI.Make("Frame", {
+		LayoutOrder = 4,
+		Size = UDim2.new(1, 0, 0, 160),
+		BackgroundTransparency = 1,
+	}, content) :: Frame
 	UI.Make("UIListLayout", {
 		FillDirection = Enum.FillDirection.Horizontal,
 		HorizontalAlignment = Enum.HorizontalAlignment.Center,
@@ -238,20 +338,30 @@ local function build()
 		Padding = UDim.new(0, 14),
 	}, cards)
 
+	local buttons = UI.Make("Frame", {
+		LayoutOrder = 5,
+		Size = UDim2.new(1, 0, 0, 40),
+		BackgroundTransparency = 1,
+	}, content) :: Frame
+	UI.Make("UIListLayout", {
+		FillDirection = Enum.FillDirection.Horizontal,
+		HorizontalAlignment = Enum.HorizontalAlignment.Center,
+		SortOrder = Enum.SortOrder.LayoutOrder,
+		Padding = UDim.new(0, 16),
+	}, buttons)
 	local equipButton = UI.Button({
-		AnchorPoint = Vector2.new(1, 0),
-		Position = UDim2.new(0.5, -8, 0.34, 190),
+		LayoutOrder = 1,
 		Size = UDim2.fromOffset(200, 40),
 		Text = "EQUIP UPGRADES",
 		BackgroundColor3 = Theme.Colors.Success,
 		TextColor3 = Theme.Colors.Backdrop,
-	}, backdrop)
+	}, buttons)
 	equipButton.Activated:Connect(equipUpgrades)
 	local closeButton = UI.Button({
-		Position = UDim2.new(0.5, 8, 0.34, 190),
+		LayoutOrder = 2,
 		Size = UDim2.fromOffset(200, 40),
 		Text = "CONTINUE  [Space]",
-	}, backdrop)
+	}, buttons)
 	closeButton.Activated:Connect(function()
 		UIState.CloseMenu(MENU)
 	end)

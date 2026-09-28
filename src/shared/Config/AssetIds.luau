@@ -61,11 +61,13 @@ local AssetIds = {
 			LootExotic = 0,
 			PowerUp = 0,
 		},
+		-- Looping tracks crossfaded by MusicController; Victory plays once.
 		Music = {
 			Hub = 0,
 			Explore = 0,
 			Combat = 0,
 			Boss = 0,
+			Victory = 0,
 		},
 		-- Looping hub ambience.
 		Ambient = {
@@ -84,6 +86,16 @@ local AssetIds = {
 		Crosshair = 0,
 		-- Skybox faces for the hub's bright sky (0 = Roblox's default sky).
 		HubSky = { Bk = 0, Dn = 0, Ft = 0, Lf = 0, Rt = 0, Up = 0 },
+		-- Loading screen art per map (0 = a drawn placeholder).
+		Loading = {
+			Default = 0,
+			Hub = 0,
+			FirstLight = 0,
+			SunkenRelay = 0,
+			HollowDark = 0,
+			HollowSpire = 0,
+			VaultOfEchoes = 0,
+		} :: { [string]: number },
 	},
 	-- Roblox's own default character animations (public, owned by Roblox, not
 	-- placeholders). Used for enemy walk/idle and the weapon hold pose.

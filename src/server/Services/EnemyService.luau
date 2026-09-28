@@ -469,6 +469,8 @@ function EnemyService.Spawn(defId: string, cframe: CFrame, options: SpawnOptions
 	if def.Dummy or def.MoveSpeed <= 0 or rig ~= "Humanoid" then
 		root.Anchored = true
 	end
+	-- Clients read these for music intensity and the like.
+	model:SetAttribute("Tier", if def.Dummy or def.Role == "Object" then "Object" else def.Tier)
 	model.Parent = WorldService.Folder("Enemies")
 	if not root.Anchored then
 		pcall(function()
