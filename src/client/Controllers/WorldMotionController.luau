@@ -13,14 +13,20 @@
 	  LL_Spin    models rotating around SpinCenter/SpinAxis at SpinSpeed
 	             degrees per second (the Lantern's rings, holograms)
 	  LL_Flyer   ships flying circles around FlightCenter
+	  LL_Laser   laser traps that blink (LaserPeriod, LaserOn, LaserPhase):
+	             hidden while off. The server applies their damage using
+	             the same timing (shared/World/Motion).
 
 	Tags come from CollectionService, so parts that stream in later (or
 	stream back in) are picked up automatically.
 ]]
 
 local CollectionService = game:GetService("CollectionService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 local Workspace = game:GetService("Workspace")
+
+local Motion = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("World"):WaitForChild("Motion"))
 
 local WorldMotionController = {}
 
@@ -28,30 +34,16 @@ type Mover = { Part: BasePart, Base: CFrame, Offset: Vector3, Period: number, Dw
 type Spinner = { Model: Model, Center: Vector3, Axis: Vector3, Speed: number, Relative: CFrame }
 type Flyer = { Model: Model, Center: Vector3, Radius: number, Speed: number, Phase: number, Bob: number }
 
+type Laser = { Part: BasePart, Period: number, On: number, Phase: number, Transparency: number }
+
 local movers: { [BasePart]: Mover } = {}
 local spinners: { [Model]: Spinner } = {}
 local flyers: { [Model]: Flyer } = {}
-
-local function smooth(t: number): number
-	return t * t * (3 - 2 * t)
-end
+local lasers: { [BasePart]: Laser } = {}
 
 -- 0..1 progress along a mover's path at `time`, and its rate (per second).
 local function moverProgress(mover: Mover, time: number): (number, number)
-	local period = math.max(0.1, mover.Period)
-	local half = period / 2
-	local travel = math.max(0.05, half - mover.Dwell)
-	local t = ((time / period + mover.Phase) % 1) * period
-	if t < mover.Dwell then
-		return 0, 0
-	elseif t < half then
-		local x = (t - mover.Dwell) / travel
-		return smooth(x), 6 * x * (1 - x) / travel
-	elseif t < half + mover.Dwell then
-		return 1, 0
-	end
-	local x = (t - half - mover.Dwell) / travel
-	return 1 - smooth(x), -6 * x * (1 - x) / travel
+	return Motion.Progress(mover.Period, mover.Dwell, mover.Phase, time)
 end
 
 -- Exposed for tests: where a mover is at `time` (0 = base, 1 = base + offset).
@@ -121,6 +113,23 @@ local function addFlyer(instance: Instance)
 	}
 end
 
+local function addLaser(instance: Instance)
+	if not instance:IsA("BasePart") or lasers[instance] then
+		return
+	end
+	local period = tonumber(instance:GetAttribute("LaserPeriod")) or 0
+	if period <= 0 then
+		return -- always on
+	end
+	lasers[instance] = {
+		Part = instance,
+		Period = period,
+		On = tonumber(instance:GetAttribute("LaserOn")) or 0.5,
+		Phase = tonumber(instance:GetAttribute("LaserPhase")) or 0,
+		Transparency = instance.Transparency,
+	}
+end
+
 local function watch(tag: string, add: (Instance) -> (), remove: (Instance) -> ())
 	for _, instance in CollectionService:GetTagged(tag) do
 		add(instance)
@@ -141,6 +150,9 @@ function WorldMotionController.Start()
 	watch("LL_Flyer", addFlyer, function(instance)
 		flyers[instance :: any] = nil
 	end)
+	watch("LL_Laser", addLaser, function(instance)
+		lasers[instance :: any] = nil
+	end)
 
 	-- Movers update before physics so riders are carried this frame.
 	RunService.PreSimulation:Connect(function()
@@ -159,6 +171,15 @@ function WorldMotionController.Start()
 
 	RunService.RenderStepped:Connect(function()
 		local time = Workspace:GetServerTimeNow()
+		for part, laser in lasers do
+			if part.Parent == nil then
+				lasers[part] = nil
+			else
+				part.Transparency = if Motion.LaserOn(laser.Period, laser.On, laser.Phase, time)
+					then laser.Transparency
+					else 1
+			end
+		end
 		for model, spinner in spinners do
 			if model.Parent == nil then
 				spinners[model] = nil

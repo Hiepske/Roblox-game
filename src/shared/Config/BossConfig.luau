@@ -28,8 +28,14 @@
 	Adds         a trickle of enemies every Interval seconds (capped)
 	HeavyAmmoEvery  seconds between heavy ammo drops at BossArena/Ammo_n
 	Enrage       after After seconds the boss wipes the fireteam (raid)
-	Script       a special encounter runner instead of the above
-	             ("EchoPlates": the raid's plate mechanic)
+	Script       a special encounter runner instead of the above:
+	               EchoPlates   (raid 1) immune until the lit echo plates are
+	                            held; the lit plates change every cycle
+	               EchoDeposit  (raid 2) immune until Deposit.Needed echoes
+	                            are carried from slain Echo Bearers (one per
+	                            room, BossArena Room_n) to the well
+	Deposit      the EchoDeposit tuning (bearer enemy, echoes needed, how
+	             long a carried echo lasts, the damage window)
 	Chest        a loot chest appears where the boss fell (the activity's
 	             rewards are claimed from it)
 ]]
@@ -68,6 +74,7 @@ export type BossDef = {
 	HeavyAmmoEvery: number,
 	Enrage: { After: number, Text: string }?,
 	Script: string?,
+	Deposit: { Bearer: string, Needed: number, ChargeSeconds: number, DamageSeconds: number }?,
 	Chest: boolean?,
 }
 
@@ -215,11 +222,58 @@ local List: { BossDef } = {
 		Immune = {},
 		Attacks = {
 			{ Kind = "Barrage", Cooldown = 14, FirstAt = 10, Windup = 1.4, Count = 20, Damage = 12 },
+			{ Kind = "Slam", Cooldown = 18, FirstAt = 16, Windup = 1.8, Radius = 14, Damage = 55 },
 		},
 		Adds = { Interval = 25, Enemies = { RUST_SCRAPPER = 3, RUST_GUNNER = 2 }, MaxAlive = 10 },
 		HeavyAmmoEvery = 45,
 		Script = "EchoPlates",
 		Enrage = { After = 360, Text = "ENRAGE: the Echo Engine overloads!" },
+		Chest = true,
+	},
+	{
+		Id = "ECHO_WARDEN",
+		Enemy = "CONC_ECHO_WARDEN",
+		Immune = {},
+		Attacks = {
+			{ Kind = "Barrage", Cooldown = 12, FirstAt = 8, Windup = 1.2, Count = 18, Damage = 11 },
+			{ Kind = "Slam", Cooldown = 14, FirstAt = 14, Windup = 1.6, Radius = 14, Damage = 55 },
+		},
+		Adds = { Interval = 22, Enemies = { RUST_SCRAPPER = 2, RUST_GUNNER = 1 }, MaxAlive = 10 },
+		HeavyAmmoEvery = 40,
+		Script = "EchoDeposit",
+		Deposit = { Bearer = "RUST_ECHO_BEARER", Needed = 3, ChargeSeconds = 30, DamageSeconds = 25 },
+		Enrage = { After = 480, Text = "ENRAGE: the echoes drown the chamber!" },
+		Chest = true,
+	},
+	{
+		Id = "ECHO_SOVEREIGN",
+		Enemy = "CONC_ECHO_SOVEREIGN",
+		Immune = {
+			{
+				At = 0.66,
+				Break = "Pylons",
+				Text = "The Sovereign draws on the echo pillars: destroy them",
+				Count = 3,
+				Enemy = "CONC_ECHO_PILLAR",
+			},
+			{
+				At = 0.33,
+				Break = "Adds",
+				Text = "The vault's guardians answer the Sovereign",
+				Enemies = { CONC_WARDEN = 1, CONC_VAULT_SENTINEL = 3, RUST_SCRAPPER = 3 },
+				Waves = 2,
+			},
+		},
+		Attacks = {
+			{ Kind = "Barrage", Cooldown = 10, FirstAt = 6, Windup = 1.2, Count = 20, Damage = 11 },
+			{ Kind = "Slam", Cooldown = 13, FirstAt = 12, Windup = 1.6, Radius = 16, Damage = 60 },
+			{ Kind = "Nova", Cooldown = 40, FirstAt = 20, Windup = 8, Radius = 10, Phases = { 2 } },
+			{ Kind = "Nova", Cooldown = 28, FirstAt = 15, Windup = 7, Radius = 10, Phases = { 3 } },
+			{ Kind = "Teleport", Cooldown = 16, FirstAt = 10, Phases = { 3 } },
+		},
+		Adds = { Interval = 30, Enemies = { RUST_GUNNER = 2, CONC_VAULT_SENTINEL = 1 }, MaxAlive = 8 },
+		HeavyAmmoEvery = 35,
+		Enrage = { After = 540, Text = "ENRAGE: the Sovereign sings the vault closed!" },
 		Chest = true,
 	},
 }

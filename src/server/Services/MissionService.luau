@@ -17,13 +17,17 @@
 	Also here:
 	  * falling below the map's KillY attribute puts you back at the
 	    checkpoint (jumping puzzles, ledges)
-	  * the loot chest at the end (where the last boss fell)
+	  * laser traps (parts tagged LL_Laser): clients draw them sweeping and
+	    blinking; the server works out where each one is from the same
+	    timing (shared/World/Motion) and burns players inside
+	  * loot chests (where the last boss fell, or the arena's Chest marker)
 ]]
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Shared = ReplicatedStorage.Shared
 local MissionRules = require(Shared.Activities.MissionRules)
+local Motion = require(Shared.World.Motion)
 
 local CharacterService = require(script.Parent.CharacterService)
 local EnemyService = require(script.Parent.EnemyService)
@@ -78,6 +82,7 @@ local function clearZone(run: Run, entry: MissionRules.ZoneEntry)
 		for _, player in run.Players do
 			NetService.Notify(player, `Encounter complete: {encounter.Name}`, "Success")
 		end
+		run.OnEncounterCleared(encounter)
 	end
 end
 
@@ -165,9 +170,9 @@ function MissionService.CheckFalls(run: Run)
 	end
 	for _, enemy in EnemyService.GetEnemies(run.Id) do
 		if enemy.Root.Position.Y < floor then
-			local spawn = MissionKit.Marker(run, "BossSpawn")
+			local spawn = run.BossSpawn
 			if enemy == run.Boss and spawn then
-				EnemyService.Relocate(enemy, spawn.CFrame + Vector3.new(0, 3, 0))
+				EnemyService.Relocate(enemy, spawn + Vector3.new(0, 3, 0))
 			else
 				EnemyService.Kill(enemy)
 			end
@@ -175,16 +180,91 @@ function MissionService.CheckFalls(run: Run)
 	end
 end
 
--- The loot chest: appears where the last boss fell (or at the marker
--- "Chest", or the checkpoint). `onClaim` runs when a run player opens it.
-function MissionService.SpawnChest(run: Run, onClaim: (Player) -> ()): Model
-	local marker = MissionKit.Marker(run, "Chest")
+-- Laser traps ------------------------------------------------------------------------------
+
+local function hazardsOf(run: Run): { RunTypes.Hazard }
+	local cached = run.Hazards
+	if cached then
+		return cached
+	end
+	local list: { RunTypes.Hazard } = {}
+	for _, descendant in run.Map:GetDescendants() do
+		if descendant:IsA("BasePart") and descendant:HasTag("LL_Laser") then
+			local offset = descendant:GetAttribute("MoveOffset")
+			table.insert(list, {
+				Part = descendant,
+				Base = descendant.CFrame,
+				Offset = if typeof(offset) == "Vector3" then offset else Vector3.zero,
+				Period = tonumber(descendant:GetAttribute("MovePeriod")) or 10,
+				Dwell = tonumber(descendant:GetAttribute("MoveDwell")) or 0,
+				Phase = tonumber(descendant:GetAttribute("MovePhase")) or 0,
+				BlinkPeriod = tonumber(descendant:GetAttribute("LaserPeriod")) or 0,
+				BlinkOn = tonumber(descendant:GetAttribute("LaserOn")) or 0.5,
+				BlinkPhase = tonumber(descendant:GetAttribute("LaserPhase")) or 0,
+				Damage = tonumber(descendant:GetAttribute("Damage")) or 45,
+			})
+		end
+	end
+	run.Hazards = list
+	return list
+end
+
+-- Where a laser is right now (it may sweep), or nil while it's blinked off.
+function MissionService.HazardCFrame(hazard: RunTypes.Hazard, time: number): CFrame?
+	if not Motion.LaserOn(hazard.BlinkPeriod, hazard.BlinkOn, hazard.BlinkPhase, time) then
+		return nil
+	end
+	if hazard.Offset.Magnitude < 0.01 then
+		return hazard.Base
+	end
+	return Motion.MoverCFrame(hazard.Base, hazard.Offset, hazard.Period, hazard.Dwell, hazard.Phase, time)
+end
+
+-- Burns players standing in a live laser (at most once every 0.8 s).
+function MissionService.CheckHazards(run: Run)
+	if run.Status ~= "Active" then
+		return
+	end
+	local list = hazardsOf(run)
+	if #list == 0 then
+		return
+	end
+	local t = MissionKit.Now()
+	for _, hazard in list do
+		local cframe = MissionService.HazardCFrame(hazard, t)
+		if cframe then
+			local half = hazard.Part.Size / 2 + Vector3.new(1.2, 2.5, 1.2)
+			for _, player in run.Players do
+				local root = MissionKit.RootOf(player)
+				if root and CharacterService.IsAlive(player) and t >= (run.HazardCooldown[player] or 0) then
+					local offset = cframe:PointToObjectSpace(root.Position)
+					if
+						math.abs(offset.X) <= half.X
+						and math.abs(offset.Y) <= half.Y
+						and math.abs(offset.Z) <= half.Z
+					then
+						run.HazardCooldown[player] = t + 0.8
+						CharacterService.DamagePlayer(player, hazard.Damage, "Laser")
+						MissionKit.Cue(run, "LaserHit", root.Position)
+					end
+				end
+			end
+		end
+	end
+end
+
+-- Chests ------------------------------------------------------------------------------------
+
+-- A loot chest: at the current arena's "Chest" marker, else where the last
+-- boss fell, else the checkpoint. `onClaim` runs when a run player opens it.
+function MissionService.SpawnChest(run: Run, onClaim: (Player) -> (), name: string?): Model
+	local marker = MissionKit.ArenaMarker(run, run.Arena, "Chest")
 	local at = if marker
 		then marker.CFrame - Vector3.new(0, marker.Size.Y / 2, 0)
 		else run.ChestAt or (MissionKit.MarkerCFrame(run, run.Checkpoint) - Vector3.new(0, 3, 0))
 	local builder = MapKit.New("RewardChest")
 	local chest = Props.Chest(builder, at, "REWARDS", run.Map)
-	chest.Name = "RewardChest"
+	chest.Name = name or "RewardChest"
 	for _, descendant in chest:GetDescendants() do
 		if descendant:IsA("ProximityPrompt") then
 			descendant.Name = "ClaimRewards"

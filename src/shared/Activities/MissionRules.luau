@@ -122,14 +122,16 @@ export type Requirement = {
 	Name: string,
 	Count: number?,
 	Where: string,
+	-- Look only inside this marker folder (a boss arena).
+	Arena: string?,
 }
 
 -- Everything a map must contain for `activity` to run (checked by tests and
 -- by MapBuilders/Generate in Studio).
 function MissionRules.Requirements(activity: ActivityDef): { Requirement }
 	local list: { Requirement } = {}
-	local function need(kind: RequirementKind, name: string, where: string, count: number?)
-		table.insert(list, { Kind = kind, Name = name, Count = count, Where = where })
+	local function need(kind: RequirementKind, name: string, where: string, count: number?, arena: string?)
+		table.insert(list, { Kind = kind, Name = name, Count = count, Where = where, Arena = arena })
 	end
 	need("Marker", "PlayerStart", activity.Id)
 	for _, entry in MissionRules.ZoneList(activity) do
@@ -158,23 +160,27 @@ function MissionRules.Requirements(activity: ActivityDef): { Requirement }
 				end
 			end
 			if step.Kind == "Boss" then
-				need("Marker", "BossSpawn", label)
+				local arena = step.Arena
+				need("Marker", "BossSpawn", label, nil, arena)
 				local boss = BossConfig.ById[step.Boss or ""]
 				if boss then
 					for _, immune in boss.Immune do
 						if immune.Break == "Pylons" then
-							need("Numbered", "Pylon", label, immune.Count or 3)
+							need("Numbered", "Pylon", label, immune.Count or 3, arena)
 						end
 					end
 					for _, attack in boss.Attacks do
 						if attack.Kind == "Teleport" then
-							need("Numbered", "Teleport", label, 2)
+							need("Numbered", "Teleport", label, 2, arena)
 						elseif attack.Kind == "Nova" then
-							need("Numbered", "Safe", label, 1)
+							need("Numbered", "Safe", label, 1, arena)
 						end
 					end
 					if boss.Script == "EchoPlates" then
-						need("Numbered", "Plate", label, 3)
+						need("Numbered", "Plate", label, 3, arena)
+					elseif boss.Script == "EchoDeposit" then
+						need("Numbered", "Room", label, 3, arena)
+						need("Marker", "EchoWell", label, nil, arena)
 					end
 				end
 			end

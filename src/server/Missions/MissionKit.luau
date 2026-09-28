@@ -109,6 +109,22 @@ function MissionKit.Marker(run: Run, name: string?): BasePart?
 	return MapMarkers.Find(run.Markers, name)
 end
 
+-- A marker of a boss arena: inside marker folder `arena` when given (maps
+-- with several bosses), else anywhere by name.
+function MissionKit.ArenaMarker(run: Run, arena: string?, name: string): BasePart?
+	if arena then
+		return MapMarkers.InFolder(run.Markers, arena, name)
+	end
+	return MapMarkers.Find(run.Markers, name)
+end
+
+function MissionKit.ArenaNumbered(run: Run, arena: string?, name: string): { BasePart }
+	if arena then
+		return MapMarkers.NumberedIn(run.Markers, arena, name)
+	end
+	return MapMarkers.Numbered(run.Markers, name)
+end
+
 -- Where a player standing on marker `name` goes (falls back to the start).
 function MissionKit.MarkerCFrame(run: Run, name: string?): CFrame
 	local marker = MissionKit.Marker(run, name) or MissionKit.Marker(run, "PlayerStart")
@@ -196,6 +212,10 @@ end
 
 function MissionKit.AliveInRun(run: Run): number
 	return #EnemyService.GetEnemies(run.Id)
+end
+
+function MissionKit.Notify(player: Player, message: string, kind: string?)
+	NetService.Notify(player, message, kind)
 end
 
 -- World cues -------------------------------------------------------------------------------

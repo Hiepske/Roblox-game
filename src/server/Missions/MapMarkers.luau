@@ -11,6 +11,8 @@
 	                                     markers Spawn_Zone2_1, _2, ...)
 	  Numbered(index, "Pylon")           Pylon_1, Pylon_2, ... in order
 	  Gate(map, "Gate_Zone2")            a gate model or Phase 2 door part
+	  InFolder / NumberedIn              the same, only inside one folder
+	                                     (a boss arena when a map has several)
 ]]
 
 local MissionRules = require(game:GetService("ReplicatedStorage").Shared.Activities.MissionRules)
@@ -78,6 +80,31 @@ function MapMarkers.Numbered(index: Index, name: string): { BasePart }
 	return list
 end
 
+-- A marker named `name` directly inside folder `folder`.
+function MapMarkers.InFolder(index: Index, folder: string, name: string): BasePart?
+	for _, part in (index.Folders[folder] or {}) :: { BasePart } do
+		if part.Name == name then
+			return part
+		end
+	end
+	return nil
+end
+
+-- Markers name_1, name_2, ... inside folder `folder`.
+function MapMarkers.NumberedIn(index: Index, folder: string, name: string): { BasePart }
+	local list: { BasePart } = {}
+	local n = 1
+	while true do
+		local part = MapMarkers.InFolder(index, folder, `{name}_{n}`)
+		if part == nil then
+			break
+		end
+		table.insert(list, part)
+		n += 1
+	end
+	return list
+end
+
 -- Enemy spawn points of a folder under EnemySpawns (or legacy Spawn_<folder>_n).
 function MapMarkers.SpawnPoints(index: Index, folder: string): { BasePart }
 	local list = index.Folders[folder]
@@ -107,13 +134,25 @@ function MapMarkers.Missing(map: Instance, activity: any): { string }
 	local seen: { [string]: boolean } = {}
 	for _, need in MissionRules.Requirements(activity) do
 		local ok = true
-		if need.Kind == "Marker" then
+		local arena = need.Arena
+		local kind: string = need.Kind
+		if arena and kind == "Marker" then
+			ok = MapMarkers.InFolder(index, arena, need.Name) ~= nil
+		elseif arena and kind == "Numbered" then
+			ok = #MapMarkers.NumberedIn(index, arena, need.Name) >= (need.Count or 1)
+			if not ok then
+				ok = true
+				for n = 1, need.Count or 1 do
+					ok = ok and map:FindFirstChild(`{need.Name}_{n}`, true) ~= nil
+				end
+			end
+		elseif kind == "Marker" then
 			ok = MapMarkers.Find(index, need.Name) ~= nil
-		elseif need.Kind == "Spawns" then
+		elseif kind == "Spawns" then
 			ok = #MapMarkers.SpawnPoints(index, need.Name) > 0
-		elseif need.Kind == "Gate" then
+		elseif kind == "Gate" then
 			ok = MapMarkers.Gate(map, need.Name) ~= nil
-		elseif need.Kind == "Numbered" then
+		elseif kind == "Numbered" then
 			-- Markers, or (raid plates) visible parts with those names.
 			ok = #MapMarkers.Numbered(index, need.Name) >= (need.Count or 1)
 			if not ok then
@@ -123,7 +162,7 @@ function MapMarkers.Missing(map: Instance, activity: any): { string }
 				end
 			end
 		end
-		local label = `{need.Kind} {need.Name} ({need.Where})`
+		local label = `{need.Kind} {if arena then arena .. "/" else ""}{need.Name} ({need.Where})`
 		if not ok and not seen[label] then
 			seen[label] = true
 			table.insert(missing, label)

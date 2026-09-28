@@ -21,7 +21,11 @@
 	  Destroy   destroy Count objects (Enemy, default Shield Generator)
 	            spawned at the markers <Target>_1..n while waves attack
 	  Interact  use the console at Target (a hold-E prompt)
-	  Boss      the boss fight Boss (BossConfig)
+	  Patrol    send Waves out to walk the EnemySpawns/<Spawns> points in a
+	            loop (they only notice you up close); finishes at once
+	  Boss      the boss fight Boss (BossConfig); Arena names the marker
+	            folder holding that fight's BossSpawn, Ammo_n, Pylon_n...
+	            (needed when a map has more than one boss)
 	Wave enemy counts are for one player and grow with the fireteam
 	(CombatConfig.PartyScaling). Enemies arrive through rifts ("Portal"),
 	from a dropship ("Dropship") or silently ("Ambush"), preferring spawn
@@ -73,7 +77,7 @@ export type WaveDef = {
 }
 
 export type StepDef = {
-	Kind: "Travel" | "Waves" | "Defend" | "Survive" | "Destroy" | "Interact" | "Boss",
+	Kind: "Travel" | "Waves" | "Defend" | "Survive" | "Destroy" | "Interact" | "Patrol" | "Boss",
 	Text: string,
 	Target: string?,
 	-- EnemySpawns folder (default: the zone's Id).
@@ -86,6 +90,7 @@ export type StepDef = {
 	Count: number?,
 	Enemy: string?,
 	Boss: string?,
+	Arena: string?,
 }
 
 export type ZoneDef = {
@@ -959,7 +964,7 @@ local List: { ActivityDef } = {
 		Name = "Vault of Echoes",
 		Type = "Raid",
 		Destination = "SolaceDeep",
-		Description = "Six Keepers descend into a vault where every sound becomes a weapon. Encounter 1: silence the Echo Engine.",
+		Description = "Six Keepers descend into a gold-and-black vault where every sound becomes a weapon. Break the Gate, cross the Descent, carry echoes through the Echo Chamber, slip through the Silent Hall and silence the Echo Sovereign. Each encounter's chest holds a weekly Pinnacle.",
 		RecommendedPower = 495,
 		MinPlayers = 1,
 		MaxPlayers = 6,
@@ -967,53 +972,122 @@ local List: { ActivityDef } = {
 		PowerDeltaCap = 0,
 		LootSource = "Raid",
 		Unlock = { Power = 480 },
-		Factions = { "Rustborn" },
+		Factions = { "Rustborn", "Concord" },
 		Place = "Raid",
 		Order = 50,
 		Map = "VaultOfEchoes",
 		Playable = true,
-		Rewards = { Drops = { Min = 0, Max = 0 }, ExclusiveChance = 0.15, FallbackDrops = 1 },
+		Rewards = { Drops = { Min = 0, Max = 0 }, ExclusiveChance = 0.2, FallbackDrops = 1 },
 		Encounters = {
 			{
-				Id = "THE_ECHO_CHAMBER",
-				Name = "The Echo Chamber",
+				Id = "THE_GATE",
+				Name = "The Gate",
 				RecommendedPower = 495,
-				Description = "Harrowmaw is immune until three Keepers stand on the echo plates at once. Then: twenty seconds to hurt it. Don't let the enrage timer run out.",
+				Description = "Harrowmaw guards the vault gate, immune while its echo plates are silent. Hold the lit plates (they change every cycle) to charge Echo Resonance, then burn it. Don't let the enrage timer run out.",
 				Playable = true,
 				Milestone = "RAID_ENCOUNTER_1",
 				Objectives = {},
 				Zones = {
 					{
-						Id = "Chamber",
-						Name = "The Echo Chamber",
-						Checkpoint = "Checkpoint_Chamber",
+						Id = "Gate",
+						Name = "The Gate",
 						Steps = {
-							{ Kind = "Travel", Text = "Enter the Echo Chamber", Target = "Zone_Chamber" },
+							{ Kind = "Travel", Text = "Approach the vault gate", Target = "GateEntry" },
 							{
 								Kind = "Boss",
 								Text = "Defeat Harrowmaw, the Echo Engine",
 								Boss = "HARROWMAW",
-								Spawns = "Adds",
+								Arena = "GateArena",
 							},
 						} :: { StepDef },
 					},
-				} :: { ZoneDef },
+				},
 			},
 			{
-				Id = "HALL_OF_MIRRORS",
-				Name = "Hall of Mirrors",
+				Id = "THE_DESCENT",
+				Name = "The Descent",
+				RecommendedPower = 495,
+				Description = "A jumping puzzle over the vault's heart: moving platforms, long drops. Fall and you're back at the top.",
+				Playable = true,
+				Objectives = {},
+				Zones = {
+					{
+						Id = "Descent",
+						Name = "The Descent",
+						Steps = { { Kind = "Travel", Text = "Cross the Descent", Target = "DescentEnd" } } :: { StepDef },
+					},
+				},
+			},
+			{
+				Id = "THE_ECHO_CHAMBER",
+				Name = "The Echo Chamber",
 				RecommendedPower = 498,
-				Description = "Coming later: split the team and match reflected symbols.",
+				Description = "Oriane is sealed behind three echoes. Kill the marked Echo Bearer in each room and carry its echo to the well before it fades. Adds never stop coming.",
+				Playable = true,
 				Milestone = "RAID_ENCOUNTER_2",
 				Objectives = {},
+				Zones = {
+					{
+						Id = "Chamber",
+						Name = "The Echo Chamber",
+						Steps = {
+							{ Kind = "Travel", Text = "Enter the Echo Chamber", Target = "ChamberEntry" },
+							{
+								Kind = "Boss",
+								Text = "Defeat Oriane, the Echo Warden",
+								Boss = "ECHO_WARDEN",
+								Arena = "ChamberArena",
+							},
+						} :: { StepDef },
+					},
+				},
 			},
 			{
-				Id = "THE_SILENT_CORE",
-				Name = "The Silent Core",
+				Id = "THE_SILENT_HALL",
+				Name = "The Silent Hall",
+				RecommendedPower = 498,
+				Description = "Sweeping lasers and sentinel patrols. Time your runs.",
+				Playable = true,
+				Objectives = {},
+				Zones = {
+					{
+						Id = "SilentHall",
+						Name = "The Silent Hall",
+						Steps = {
+							{
+								Kind = "Patrol",
+								Text = "Slip past the sentinels",
+								Spawns = "HallPatrol",
+								Waves = { Wave({ CONC_VAULT_SENTINEL = 4 }) },
+							},
+							{ Kind = "Travel", Text = "Reach the Sovereign's door", Target = "HallEnd" },
+						} :: { StepDef },
+					},
+				},
+			},
+			{
+				Id = "ECHO_SOVEREIGN",
+				Name = "The Echo Sovereign",
 				RecommendedPower = 500,
-				Description = "Coming later: the heart of the vault.",
+				Description = "The heart of the vault. Three phases: pillars, guardians, and a final song. When it winds up its nova, get inside a lit circle. It enrages after nine minutes.",
+				Playable = true,
 				Milestone = "RAID_ENCOUNTER_3",
 				Objectives = {},
+				Zones = {
+					{
+						Id = "Throne",
+						Name = "The Sovereign's Throne",
+						Steps = {
+							{ Kind = "Travel", Text = "Face the Sovereign", Target = "ThroneEntry" },
+							{
+								Kind = "Boss",
+								Text = "Silence the Echo Sovereign",
+								Boss = "ECHO_SOVEREIGN",
+								Arena = "ThroneArena",
+							},
+						} :: { StepDef },
+					},
+				},
 			},
 		} :: { EncounterDef },
 	},

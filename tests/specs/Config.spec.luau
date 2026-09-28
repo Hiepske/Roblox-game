@@ -89,9 +89,20 @@ describe("Content targets", function()
 		end
 	end)
 
-	it("gives the raid three encounters and disables power in PvP", function()
+	it("gives the raid three boss encounters and disables power in PvP", function()
 		local raid = ActivityConfig.ById.RAID_VAULT_OF_ECHOES
-		expect(#raid.Encounters).toBe(3)
+		local bosses = 0
+		for _, encounter in raid.Encounters do
+			for _, zone in encounter.Zones or {} do
+				for _, step in zone.Steps do
+					if step.Boss then
+						bosses += 1
+					end
+				end
+			end
+		end
+		expect(bosses).toBe(3)
+		expect(#raid.Encounters).toBe(5)
 		expect(raid.MaxPlayers).toBe(6)
 		expect(ActivityConfig.ById.PVP_PROVING_GROUNDS.PowerEnabled).toBe(false)
 	end)

@@ -12,6 +12,7 @@
 	  Survive   stay alive for Duration seconds; waves keep coming
 	  Destroy   destroy the objects spawned at Target_1..Count; waves keep coming
 	  Interact  hold E at the console marker Target
+	  Patrol    send enemies walking the Spawns points in a loop (done at once)
 	  Boss      BossFight
 ]]
 
@@ -263,6 +264,39 @@ local function interact(run: Run, token: number, step: StepDef, zone: ZoneDef): 
 	return used and MissionKit.IsActive(run, token)
 end
 
+-- Patrol ------------------------------------------------------------------------------------
+
+local function patrol(run: Run, token: number, step: StepDef, zone: ZoneDef): boolean
+	local points = MapMarkers.SpawnPoints(run.Markers, spawnsOf(step, zone))
+	if #points == 0 then
+		warn(`[Steps] Patrol route {spawnsOf(step, zone)} missing`)
+		return true
+	end
+	local route: { Vector3 } = {}
+	for _, point in points do
+		table.insert(route, point.Position)
+	end
+	local tag = `{stepTag(run, token)}_patrol`
+	local list: { string } = {}
+	for _, wave in (step.Waves or {}) :: { WaveDef } do
+		for _, entry in MissionRules.WaveList(wave, #run.Players) do
+			for _ = 1, entry.Count do
+				table.insert(list, entry.Id)
+			end
+		end
+	end
+	-- Spread the walkers out along the route.
+	for index, id in list do
+		local start = math.floor((index - 1) * #route / #list) % #route + 1
+		local options = MissionKit.SpawnOptions(run, tag, false)
+		options.Patrol = route
+		options.PatrolStart = start % #route + 1
+		EnemyService.Spawn(id, points[start].CFrame, options)
+	end
+	MissionKit.SetObjective(run, step.Text, nil, nil, nil)
+	return MissionKit.IsActive(run, token)
+end
+
 -- Dispatch ------------------------------------------------------------------------------------
 
 function Steps.Run(run: Run, token: number, step: StepDef, zone: ZoneDef): boolean
@@ -279,6 +313,8 @@ function Steps.Run(run: Run, token: number, step: StepDef, zone: ZoneDef): boole
 		return destroy(run, token, step, zone)
 	elseif kind == "Interact" then
 		return interact(run, token, step, zone)
+	elseif kind == "Patrol" then
+		return patrol(run, token, step, zone)
 	elseif kind == "Boss" then
 		return BossFight.Run(run, token, step, spawnsOf(step, zone))
 	end

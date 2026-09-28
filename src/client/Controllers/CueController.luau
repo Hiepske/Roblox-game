@@ -17,6 +17,8 @@
 	  BossIntro  the boss's name on screen
 	  BossDeath  a chain of explosions and a second of slow motion
 	  ChestDrop / AmmoDrop  a light column marking loot and ammo
+	  Deposit    an echo delivered to the well (raid)
+	  LaserHit   a laser trap burned someone
 ]]
 
 local Players = game:GetService("Players")
@@ -383,6 +385,15 @@ local function onCue(kind: any, a: any, b: any, c: any)
 		HudController.ShowLocation(string.upper(tostring(b or "")), if type(c) == "string" then c else nil)
 	elseif kind == "BossDeath" then
 		bossDeath(at, tostring(b or "Boss"))
+	elseif kind == "Deposit" then
+		column(at, GOLD, 1.5)
+		local ring = disc(at, 2, GOLD, 0.3)
+		fadeOut(ring, 0.8, { Size = Vector3.new(0.3, 26, 26) })
+		EffectsController.PlaySound(AssetIds.Sounds.Combat.GateOpen, at, 0.7)
+	elseif kind == "LaserHit" then
+		local flash = part(Vector3.new(3, 3, 3), CFrame.new(at), RED, Enum.PartType.Ball)
+		fadeOut(flash, 0.25, { Size = Vector3.new(6, 6, 6) })
+		shakeNear(at, 0.5, 0.25, 30)
 	elseif kind == "ChestDrop" then
 		column(at, GOLD, 20)
 	elseif kind == "AmmoDrop" then

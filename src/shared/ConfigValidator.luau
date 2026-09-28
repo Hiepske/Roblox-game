@@ -79,10 +79,11 @@ local STEP_KINDS = {
 	Survive = true,
 	Destroy = true,
 	Interact = true,
+	Patrol = true,
 	Boss = true,
 }
 local ARRIVALS = { Portal = true, Dropship = true, Ambush = true }
-local BOSS_SCRIPTS = { EchoPlates = true }
+local BOSS_SCRIPTS = { EchoPlates = true, EchoDeposit = true }
 
 function ConfigValidator.Validate(): { string }
 	local problems: { string } = {}
@@ -626,8 +627,8 @@ function ConfigValidator.Validate(): { string }
 					if (step.Kind == "Defend" or step.Kind == "Survive") and (step.Duration or 0) <= 0 then
 						report(`{at}: {step.Kind} steps need a Duration`)
 					end
-					if step.Kind == "Waves" and #listOf(step.Waves) == 0 then
-						report(`{at}: Waves steps need Waves`)
+					if (step.Kind == "Waves" or step.Kind == "Patrol") and #listOf(step.Waves) == 0 then
+						report(`{at}: {step.Kind} steps need Waves`)
 					end
 					if step.Advance and (step.Advance <= 0 or step.Advance > 1) then
 						report(`{at}: Advance must be in (0, 1]`)

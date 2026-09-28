@@ -261,6 +261,10 @@ end
 function FakeEnemies.Despawn(enemy)
 	enemy.Dead = true
 end
+function FakeEnemies.Kill(enemy)
+	enemy.Dead = true
+	EnemyKilled:Fire(enemy, nil)
+end
 VirtualGame.Preload(Server.Services.EnemyService, FakeEnemies)
 
 local function kill(enemy)
@@ -296,16 +300,23 @@ VirtualGame.Preload(Server.Services.LootService, {
 	DropAmmo = function()
 		ammoDrops += 1
 	end,
+	AwardEncounter = function(player, activity, encounter)
+		table.insert(completions, { Player = player, Info = { Activity = activity, Encounter = encounter } })
+		return {}
+	end,
 })
 VirtualGame.Preload(Server.Services.WeaponService, { ResetAmmo = function() end })
 local sent = {}
 local cues = {}
+local cueLog = {}
 VirtualGame.Preload(Server.Services.NetService, {
 	OnInvoke = function() end,
 	OnEvent = function() end,
 	FireClient = function(player, name, payload, ...)
 		if name == "WorldCue" then
 			cues[payload] = (cues[payload] or 0) + 1
+			cueLog[payload] = cueLog[payload] or {}
+			table.insert(cueLog[payload], { ... })
 			return
 		end
 		table.insert(sent, { Player = player, Name = name, Payload = payload })
@@ -683,14 +694,26 @@ describe("Nightfall: Hollow Spire", function()
 	end)
 end)
 
-describe("Raid: Vault of Echoes, solo", function()
+local function litPlates(run)
+	local list = {}
+	for index = 1, 3 do
+		local plate = run.Map:FindFirstChild("Plate_" .. index, true)
+		if plate:GetAttribute("Lit") then
+			table.insert(list, plate)
+		end
+	end
+	return list
+end
+
+describe("Raid: The Gate, solo", function()
 	local player = join("Solo", 495)
 	local run, boss
 
-	it("scales the boss down for one Keeper and starts immune", function()
+	it("brings Harrowmaw out at solo health, immune, behind lit echo plates", function()
 		expect(ActivityService.Launch(player, "RAID_VAULT_OF_ECHOES", nil, true)).toBe(true)
 		run = ActivityService.GetRun(player)
-		moveTo(player, marker(run, "Zone_Chamber").Position)
+		expect(run.Folder:GetAttribute("ZoneName")).toBe("The Gate")
+		moveTo(player, marker(run, "GateEntry").Position)
 		advance(0.5)
 		boss = alive(run.Id, "boss")[1]
 		expect(boss.Def.Id).toBe("RUST_ECHO_ENGINE")
@@ -698,21 +721,34 @@ describe("Raid: Vault of Echoes, solo", function()
 		expect(math.abs(boss.MaxHealth - boss.Def.Health * healthScale) < 1).toBe(true)
 		expect(boss.Immune).toBe(true)
 		expect(run.Folder:GetAttribute("EnrageAt") > 0).toBe(true)
+		expect(#litPlates(run)).toBe(1) -- solo: one lit plate
 	end)
 
-	it("opens a damage phase after holding a plate for 5 seconds", function()
-		local plate = run.Map:FindFirstChild("Plate_2", true)
-		moveTo(player, plate.Position + Vector3.new(0, 3, 0))
+	it("opens a damage phase after holding the lit plate, then lights a new one", function()
+		local unlit
+		for index = 1, 3 do
+			local plate = run.Map:FindFirstChild("Plate_" .. index, true)
+			if not plate:GetAttribute("Lit") then
+				unlit = plate
+			end
+		end
+		moveTo(player, unlit.Position + Vector3.new(0, 3, 0))
+		advance(6)
+		expect(boss.Immune).toBe(true) -- the wrong plate does nothing
+		local lit = litPlates(run)[1]
+		moveTo(player, lit.Position + Vector3.new(0, 3, 0))
 		advance(3)
 		expect(boss.Immune).toBe(true)
 		expect(run.Folder:GetAttribute("Charge") > 0).toBe(true)
 		advance(2.5)
 		expect(boss.Immune).toBe(false)
 		expect(CombatContext.Get(player).DamageBuff).toBe(1.25)
-		moveTo(player, marker(run, "Checkpoint_Chamber").Position)
+		moveTo(player, marker(run, "CP_Gate").Position)
 		advance(20.5)
 		expect(boss.Immune).toBe(true)
 		expect(CombatContext.Get(player).DamageBuff).toBe(1)
+		expect(#litPlates(run)).toBe(1)
+		expect(litPlates(run)[1] ~= lit).toBe(true) -- a different plate this time
 	end)
 
 	it("respawns a solo Keeper after 10 seconds", function()
@@ -723,16 +759,185 @@ describe("Raid: Vault of Echoes, solo", function()
 	end)
 
 	it("wipes on enrage and restarts the encounter with a fresh boss", function()
-		advance(360 - clock + run.StartedAt + 5)
+		advance(360 - (clock - run.StartedAt) + 5)
 		expect(run.Status == "Wiped" or run.Status == "Active").toBe(true)
 		advance(9)
 		expect(run.Status).toBe("Active")
 		expect(boss.Dead).toBe(true)
+		expect(run.ZoneIndex).toBe(1)
+		moveTo(player, marker(run, "GateEntry").Position)
+		advance(0.5)
 		local fresh = alive(run.Id, "boss")[1]
 		expect(fresh ~= nil and fresh ~= boss).toBe(true)
 		expect(FakeCharacters.IsAlive(player)).toBe(true)
 		ActivityService.Leave(player)
 		expect(run.Status).toBe("Closed")
+	end)
+end)
+
+describe("Raid: every encounter, solo", function()
+	local player = join("Keeper", 500)
+	local run
+
+	it("drops a chest with the weekly Pinnacle when the Gate falls", function()
+		ActivityService.Launch(player, "RAID_VAULT_OF_ECHOES", nil, true)
+		run = ActivityService.GetRun(player)
+		moveTo(player, marker(run, "GateEntry").Position)
+		advance(0.5)
+		kill(alive(run.Id, "boss")[1])
+		advance(0.5)
+		expect(run.Cleared[1].Id).toBe("THE_GATE")
+		expect(run.Map.Gates.Gate_Gate:GetAttribute("Open")).toBe(true)
+		local chest = run.Map:FindFirstChild("Chest_THE_GATE")
+		expect(chest ~= nil).toBe(true)
+		chest:FindFirstChild("ClaimRewards", true).Triggered:Fire(player)
+		chest:FindFirstChild("ClaimRewards", true).Triggered:Fire(player)
+		local gateClaims = 0
+		for _, entry in completions do
+			if entry.Player == player and entry.Info.Encounter and entry.Info.Encounter.Id == "THE_GATE" then
+				gateClaims += 1
+			end
+		end
+		expect(gateClaims).toBe(1)
+	end)
+
+	it("puts fallers back at the top of the Descent", function()
+		expect(run.Folder:GetAttribute("ZoneName")).toBe("The Descent")
+		expect(run.Checkpoint).toBe("CP_Descent")
+		moveTo(player, Vector3.new(run.Origin.X, -200, 300))
+		advance(0.5)
+		expect(near(chars[player].Position, marker(run, "CP_Descent").Position)).toBe(true)
+		moveTo(player, marker(run, "DescentEnd").Position)
+		advance(0.5)
+		expect(run.Folder:GetAttribute("ZoneName")).toBe("The Echo Chamber")
+		expect(run.Map.Gates.Gate_Descent:GetAttribute("Open")).toBe(true)
+	end)
+
+	it("lowers Oriane's shield with three echoes carried to the well", function()
+		moveTo(player, marker(run, "ChamberEntry").Position)
+		advance(0.5)
+		local boss = alive(run.Id, "boss")[1]
+		expect(boss.Def.Id).toBe("CONC_ECHO_WARDEN")
+		expect(boss.Immune).toBe(true)
+		arrive()
+		local bearers = alive(run.Id, "bearer")
+		expect(#bearers).toBe(3)
+		local well = marker(run, "EchoWell")
+		for index = 1, 3 do
+			kill(bearers[index])
+			advance(0.5)
+			expect((player:GetAttribute("EchoChargeUntil") or 0) > clock).toBe(true)
+			moveTo(player, well.Position)
+			advance(0.5)
+			expect(player:GetAttribute("EchoChargeUntil")).toBeNil()
+			moveTo(player, marker(run, "CP_Chamber").Position)
+		end
+		expect(cues.Deposit).toBe(3)
+		expect(boss.Immune).toBe(false)
+		expect(CombatContext.Get(player).DamageBuff).toBe(1.25)
+	end)
+
+	it("lets a carried echo fade, and a new Bearer takes its place", function()
+		local boss = alive(run.Id, "boss")[1]
+		advance(26) -- the damage window closes
+		expect(boss.Immune).toBe(true)
+		arrive()
+		local bearer = alive(run.Id, "bearer")[1]
+		kill(bearer)
+		advance(0.5)
+		expect(player:GetAttribute("EchoChargeUntil") ~= nil).toBe(true)
+		advance(31)
+		expect(player:GetAttribute("EchoChargeUntil")).toBeNil()
+		advance(8)
+		expect(#alive(run.Id, "bearer")).toBe(3)
+		kill(boss)
+		advance(0.5)
+		expect(run.Cleared[#run.Cleared].Id).toBe("THE_ECHO_CHAMBER")
+		expect(run.Map:FindFirstChild("Chest_THE_ECHO_CHAMBER") ~= nil).toBe(true)
+	end)
+
+	it("sends sentinels on patrol and burns Keepers who walk into a laser", function()
+		expect(run.Folder:GetAttribute("ZoneName")).toBe("The Silent Hall")
+		advance(0.5)
+		local sentinels = alive(run.Id, "z4s1")
+		expect(#sentinels).toBe(4)
+		expect(sentinels[1].Def.Id).toBe("CONC_VAULT_SENTINEL")
+		expect(#sentinels[1].Options.Patrol).toBe(6)
+		expect(sentinels[1].Options.Aggro).toBe(false)
+		-- Stand inside the last blinking wall long enough to catch it on.
+		local before = damageTaken[player] or 0
+		local wall
+		for _, part in run.Map:GetDescendants() do
+			if part.Name == "Laser" and part:GetAttribute("LaserPeriod") == 3 then
+				wall = part
+			end
+		end
+		moveTo(player, wall.Position)
+		advance(3.5)
+		expect((damageTaken[player] or 0) - before >= 45).toBe(true)
+		moveTo(player, marker(run, "HallEnd").Position)
+		advance(0.5)
+		expect(run.Folder:GetAttribute("ZoneName")).toBe("The Sovereign's Throne")
+	end)
+
+	it("fights the Sovereign through three phases, with safe circles against its nova", function()
+		killAll(run.Id)
+		moveTo(player, marker(run, "ThroneEntry").Position)
+		advance(0.5)
+		local boss = alive(run.Id, "boss")[1]
+		expect(boss.Def.Id).toBe("CONC_ECHO_SOVEREIGN")
+		expect(run.Folder:GetAttribute("BossPhase")).toBe(1)
+		boss.Health = boss.MaxHealth * 0.6
+		advance(0.5)
+		local pillars = alive(run.Id, "bossImmune1")
+		expect(#pillars).toBe(3)
+		expect(pillars[1].Def.Id).toBe("CONC_ECHO_PILLAR")
+		for _, pillar in pillars do
+			kill(pillar)
+		end
+		advance(0.5)
+		expect(run.Folder:GetAttribute("BossPhase")).toBe(2)
+		-- Phase 2 brings the nova: stand in a lit circle and survive it.
+		local before = #(cueLog.SafeZone or {})
+		for _ = 1, 60 do
+			advance(1)
+			if #(cueLog.SafeZone or {}) > before then
+				break
+			end
+		end
+		local circle = cueLog.SafeZone[#cueLog.SafeZone][1]
+		moveTo(player, circle)
+		local hurt = damageTaken[player] or 0
+		advance(9)
+		expect((cues.Nova or 0) > 0).toBe(true)
+		expect((damageTaken[player] or 0) - hurt < 9999).toBe(true)
+		killAll(run.Id, "bossAdds")
+		boss.Health = boss.MaxHealth * 0.3
+		advance(0.5)
+		for _ = 1, 2 do
+			arrive()
+			killAll(run.Id, "bossImmune2")
+			advance(0.5)
+		end
+		expect(boss.Immune).toBe(false)
+		expect(run.Folder:GetAttribute("BossPhase")).toBe(3)
+		kill(boss)
+		advance(0.5)
+		expect(run.Status).toBe("Complete")
+	end)
+
+	it("pays every encounter's chest once, including ones left unopened", function()
+		ActivityService.Leave(player)
+		local claimed = {}
+		for _, entry in completions do
+			if entry.Player == player and entry.Info.Encounter then
+				claimed[entry.Info.Encounter.Id] = (claimed[entry.Info.Encounter.Id] or 0) + 1
+			end
+		end
+		expect(claimed.THE_GATE).toBe(1)
+		expect(claimed.THE_ECHO_CHAMBER).toBe(1)
+		expect(claimed.ECHO_SOVEREIGN).toBe(1)
+		expect(claimed.THE_DESCENT).toBeNil()
 	end)
 end)
 
@@ -747,19 +952,21 @@ describe("Raid: Vault of Echoes, fireteam", function()
 		local ok, err = ActivityService.Join(friend, run.Id)
 		expect(err).toBeNil()
 		expect(ok).toBe(true)
-		moveTo(leader, marker(run, "Zone_Chamber").Position)
+		moveTo(leader, marker(run, "GateEntry").Position)
 		advance(0.5)
 		local boss = alive(run.Id, "boss")[1]
 		local healthScale = PowerMath.ActivityEnemyScale(495)
 		expect(math.abs(boss.MaxHealth - boss.Def.Health * healthScale * 1.6) < 1).toBe(true)
 	end)
 
-	it("needs two plates held at once for two Keepers", function()
+	it("needs both lit plates held at once for two Keepers", function()
 		local boss = alive(run.Id, "boss")[1]
-		moveTo(leader, run.Map:FindFirstChild("Plate_1", true).Position)
+		local lit = litPlates(run)
+		expect(#lit).toBe(2)
+		moveTo(leader, lit[1].Position)
 		advance(4)
 		expect(boss.Immune).toBe(true)
-		moveTo(friend, run.Map:FindFirstChild("Plate_3", true).Position)
+		moveTo(friend, lit[2].Position)
 		advance(3.5)
 		expect(boss.Immune).toBe(false)
 	end)
@@ -786,6 +993,8 @@ describe("Raid: Vault of Echoes, fireteam", function()
 		expect(run.Status).toBe("Active")
 		expect(FakeCharacters.IsAlive(leader)).toBe(true)
 		expect(FakeCharacters.IsAlive(friend)).toBe(true)
+		moveTo(leader, marker(run, "GateEntry").Position)
+		advance(0.5)
 		expect(#alive(run.Id, "boss")).toBe(1)
 	end)
 end)

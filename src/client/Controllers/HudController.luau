@@ -87,6 +87,7 @@ type Refs = {
 	ZoneDebug: TextLabel,
 	ChargeBar: Frame,
 	ChargeFill: Frame,
+	EchoCharge: TextLabel,
 	Banner: TextLabel,
 	Death: Frame,
 	DeathTitle: TextLabel,
@@ -415,6 +416,20 @@ local function build()
 		Visible = false,
 	}, Color3.fromRGB(140, 235, 255))
 
+	-- Raid encounter 2: the echo you carry and how long it lasts.
+	local echoCharge = UI.Label({
+		Name = "EchoCharge",
+		AnchorPoint = Vector2.new(0.5, 0),
+		Position = UDim2.new(0.5, 0, 0, 164),
+		Size = UDim2.new(0.6, 0, 0, 24),
+		Font = Theme.Fonts.Title,
+		TextSize = 20,
+		TextXAlignment = Enum.TextXAlignment.Center,
+		TextColor3 = Color3.fromRGB(255, 205, 90),
+		TextStrokeTransparency = 0.3,
+		Visible = false,
+	}, gui)
+
 	-- Big center banner (activity complete, wipes).
 	local banner = UI.Label({
 		Name = "Banner",
@@ -518,6 +533,7 @@ local function build()
 		ZoneDebug = zoneDebug,
 		ChargeBar = chargeBar,
 		ChargeFill = chargeFill,
+		EchoCharge = echoCharge,
 		Banner = banner,
 		Death = death,
 		DeathTitle = deathTitle,
@@ -745,6 +761,7 @@ local function updateActivity()
 		refs.ZoneDebug.Visible = false
 		refs.Phase.Visible = false
 		refs.ChargeBar.Visible = false
+		refs.EchoCharge.Visible = false
 		refs.Banner.Visible = false
 		if waypointPart then
 			waypointPart.Parent = nil
@@ -869,6 +886,11 @@ local function updateActivity()
 	local charge = tonumber(attr("Charge")) or 0
 	refs.ChargeBar.Visible = charge > 0
 	refs.ChargeFill.Size = UDim2.fromScale(math.clamp(charge, 0, 1), 1)
+	local echoUntil = tonumber(player:GetAttribute("EchoChargeUntil")) or 0
+	refs.EchoCharge.Visible = echoUntil > serverNow
+	if echoUntil > serverNow then
+		refs.EchoCharge.Text = `ECHO CHARGED: bring it to the well  {math.ceil(echoUntil - serverNow)}s`
+	end
 
 	-- Completion banner.
 	if status == "Complete" then

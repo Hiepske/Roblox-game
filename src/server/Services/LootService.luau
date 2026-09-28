@@ -267,6 +267,35 @@ function LootService.AwardCompletion(player: Player, info: CompletionInfo): { Aw
 	return awards
 end
 
+-- A raid encounter's chest: its weekly Pinnacle (or, once claimed this week,
+-- an ordinary drop) and a chance at a raid-exclusive weapon.
+function LootService.AwardEncounter(
+	player: Player,
+	activity: ActivityConfig.ActivityDef,
+	encounter: ActivityConfig.EncounterDef
+): { Award }
+	local source = activity.LootSource
+	local rewards = activity.Rewards
+	local awards: { Award } = {}
+	local claimed = encounter.Milestone ~= nil
+		and LootService.ClaimMilestone(player, encounter.Milestone, source, awards)
+	if not claimed and rewards and rewards.FallbackDrops then
+		for _ = 1, rewards.FallbackDrops do
+			award(awards, LootService.Roll(player, source, "World", nil, { NoExotic = true }), "Drop")
+		end
+	end
+	if rewards and rewards.ExclusiveChance and rng:NextNumber() < rewards.ExclusiveChance then
+		local kind: Types.RewardKind = if claimed then "Pinnacle" else "World"
+		award(
+			awards,
+			LootService.Roll(player, source, kind, nil, { ExclusiveOnly = true, NoExotic = true }),
+			"Exclusive"
+		)
+	end
+	LootService.Announce(player, awards, `{activity.Name}: {encounter.Name}`, true)
+	return awards
+end
+
 -- Enemy drops ---------------------------------------------------------------------------
 
 local function makeBox(position: Vector3, instanceId: string?, ammoType: string, fraction: number, lifetime: number?)

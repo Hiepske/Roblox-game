@@ -70,12 +70,16 @@ describe("Playable activities", function()
 		expect(ActivityRules.RecommendedPower(ActivityConfig.ById.STORY_01)).toBe(350)
 	end)
 
-	it("flattens raid encounters into zones, skipping unbuilt ones", function()
+	it("flattens raid encounters into zones, in order", function()
 		local MissionRules = require(game.ReplicatedStorage.Shared.Activities.MissionRules)
 		local list = MissionRules.ZoneList(ActivityConfig.ById.RAID_VAULT_OF_ECHOES)
-		expect(#list).toBe(1)
-		expect(list[1].Encounter.Id).toBe("THE_ECHO_CHAMBER")
+		local ids = {}
+		for _, entry in list do
+			table.insert(ids, entry.Encounter.Id)
+		end
+		expect(ids).toEqual({ "THE_GATE", "THE_DESCENT", "THE_ECHO_CHAMBER", "THE_SILENT_HALL", "ECHO_SOVEREIGN" })
 		expect(list[1].Zone.Steps[2].Boss).toBe("HARROWMAW")
+		expect(list[5].Zone.Steps[2].Boss).toBe("ECHO_SOVEREIGN")
 		expect(#MissionRules.ZoneList(ActivityConfig.ById.STORY_01)).toBe(5)
 	end)
 end)

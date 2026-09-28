@@ -22,6 +22,20 @@ export type Ghost = { Part: BasePart, Position: Vector3 }
 
 export type PlayerStats = { Kills: number, Deaths: number }
 
+-- A laser trap (a part tagged LL_Laser), with the timing clients animate it by.
+export type Hazard = {
+	Part: BasePart,
+	Base: CFrame,
+	Offset: Vector3,
+	Period: number,
+	Dwell: number,
+	Phase: number,
+	BlinkPeriod: number,
+	BlinkOn: number,
+	BlinkPhase: number,
+	Damage: number,
+}
+
 export type Run = {
 	Id: string,
 	Slot: number,
@@ -54,6 +68,9 @@ export type Run = {
 	Kills: { [string]: number },
 	Pending: { [string]: number },
 	Boss: EnemyService.Enemy?,
+	-- The current boss fight's marker folder (Arena) and spawn point.
+	Arena: string?,
+	BossSpawn: CFrame?,
 	DamageBuff: number,
 	Ghosts: { [Player]: Ghost },
 	Cleared: { ActivityConfig.EncounterDef },
@@ -66,6 +83,14 @@ export type Run = {
 	Medal: string?,
 	-- Kills everyone and restarts the encounter (set by ActivityService).
 	Wipe: (reason: string) -> (),
+	-- A raid encounter was cleared (set by ActivityService: its chest).
+	OnEncounterCleared: (encounter: ActivityConfig.EncounterDef) -> (),
+	-- Laser traps in the map (found on first use) and when each player can be hit again.
+	Hazards: { Hazard }?,
+	HazardCooldown: { [Player]: number },
+	-- Raid encounters: who was there when each was cleared, and who opened its chest.
+	EncounterEligible: { [string]: { [Player]: boolean } },
+	EncounterClaims: { [string]: { [Player]: boolean } },
 }
 
 return {}

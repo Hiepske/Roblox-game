@@ -70,6 +70,8 @@ export type Enemy = {
 	Immune: boolean,
 	Enraged: boolean,
 	Dead: boolean,
+	-- Who landed the killing blow (nil for falls and despawns).
+	Killer: Player?,
 	-- AI
 	State: AIState,
 	Target: Player?,
@@ -102,6 +104,9 @@ export type Enemy = {
 	Laser: { Dot: BasePart, Beam: Beam, Aim: Vector3, LockAt: number, FireAt: number }?,
 	-- Turrets: bolts left in the current burst.
 	BurstLeft: number,
+	-- Patrols: the route and the point walked to next.
+	Patrol: { Vector3 }?,
+	PatrolIndex: number,
 	-- Visuals
 	Bar: { Gui: BillboardGui, Health: Frame, Shield: Frame, Label: TextLabel? }?,
 	Bubble: BasePart?,
@@ -117,6 +122,10 @@ export type SpawnOptions = {
 	ExtraShields: number?,
 	-- Hunt players across the whole map instead of waiting for them.
 	Aggro: boolean?,
+	-- Walk these points in a loop until someone comes close (patrols),
+	-- starting from PatrolStart.
+	Patrol: { Vector3 }?,
+	PatrolStart: number?,
 }
 
 export type DamageInfo = {
@@ -422,6 +431,7 @@ function EnemyService.Spawn(defId: string, cframe: CFrame, options: SpawnOptions
 		Immune = false,
 		Enraged = false,
 		Dead = false,
+		Killer = nil,
 		State = "Idle",
 		Target = nil,
 		LastSeen = 0,
@@ -447,6 +457,8 @@ function EnemyService.Spawn(defId: string, cframe: CFrame, options: SpawnOptions
 		OrbitDirection = if rng:NextNumber() < 0.5 then -1 else 1,
 		Laser = nil,
 		BurstLeft = 0,
+		Patrol = opts.Patrol,
+		PatrolIndex = opts.PatrolStart or 1,
 		Bar = nil,
 		Bubble = nil,
 		Tracks = {},
@@ -539,6 +551,7 @@ local function kill(enemy: Enemy, killer: Player?)
 		return
 	end
 	enemy.Dead = true
+	enemy.Killer = killer
 	enemies[enemy.Id] = nil
 	byModel[enemy.Model] = nil
 	enemyKilled:Fire(enemy, killer)
@@ -1171,6 +1184,20 @@ local function think(enemy: Enemy, now: number)
 		return
 	end
 	local target, targetRoot = acquireTarget(enemy, now)
+	local route = enemy.Patrol
+	if (target == nil or targetRoot == nil) and route and #route > 0 and enemy.Rig == "Humanoid" then
+		-- Nobody close: walk the patrol route.
+		enemy.State = "Idle"
+		clearLaser(enemy)
+		local point = route[enemy.PatrolIndex] or route[1]
+		if (flat(point) - flat(enemy.Root.Position)).Magnitude < 4 then
+			enemy.PatrolIndex = enemy.PatrolIndex % #route + 1
+			point = route[enemy.PatrolIndex]
+		end
+		enemy.Humanoid.AutoRotate = true
+		moveTo(enemy, point)
+		return
+	end
 	if target == nil or targetRoot == nil then
 		if enemy.State ~= "Idle" then
 			enemy.State = "Idle"

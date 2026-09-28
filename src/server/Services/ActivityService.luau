@@ -162,12 +162,60 @@ local function startRunner(run: Run)
 	task.spawn(runZones, run, run.Token)
 end
 
+-- Opens a raid encounter's chest for `player` (once, and only if they were
+-- there when it was cleared): its weekly Pinnacle.
+local function claimEncounter(run: Run, player: Player, encounter: ActivityConfig.EncounterDef)
+	local eligible = run.EncounterEligible[encounter.Id]
+	if eligible == nil or not eligible[player] or DataService.GetData(player) == nil then
+		return
+	end
+	local claims = run.EncounterClaims[encounter.Id]
+	if claims == nil then
+		claims = {}
+		run.EncounterClaims[encounter.Id] = claims
+	end
+	if claims[player] then
+		return
+	end
+	claims[player] = true
+	local ok, err = pcall(LootService.AwardEncounter, player, run.Activity, encounter)
+	if not ok then
+		warn(`[ActivityService] Encounter rewards failed for {player.Name}: {err}`)
+	end
+end
+
+-- Every encounter chest `player` hasn't opened yet (leaving, completion).
+local function claimAllEncounters(run: Run, player: Player)
+	for _, encounter in run.Cleared do
+		claimEncounter(run, player, encounter)
+	end
+end
+
+local function onEncounterCleared(run: Run, encounter: ActivityConfig.EncounterDef)
+	if encounter.Milestone == nil then
+		return -- traversals have no chest
+	end
+	local eligible: { [Player]: boolean } = {}
+	for _, player in run.Players do
+		eligible[player] = true
+	end
+	run.EncounterEligible[encounter.Id] = eligible
+	MissionService.SpawnChest(run, function(player: Player)
+		claimEncounter(run, player, encounter)
+	end, `Chest_{encounter.Id}`)
+end
+
 -- Gives `player` their end-of-activity rewards (once).
 local function claimRewards(run: Run, player: Player)
 	if run.Rewarded[player] or DataService.GetData(player) == nil then
 		return
 	end
 	run.Rewarded[player] = true
+	if run.Activity.Encounters then
+		-- Raids pay out through their encounter chests.
+		claimAllEncounters(run, player)
+		return
+	end
 	local title = run.Activity.Name
 	if run.Difficulty then
 		title ..= ` ({run.Difficulty.Name})`
@@ -232,6 +280,8 @@ local function removePlayer(player: Player, returnToHub: boolean)
 	if run.Status == "Complete" then
 		-- Leaving before opening the chest still pays out.
 		claimRewards(run, player)
+	elseif player.Parent == Players then
+		claimAllEncounters(run, player)
 	end
 	if player.Parent == Players then
 		player:SetAttribute("InstanceId", nil)
@@ -309,11 +359,20 @@ complete = function(run: Run)
 		end
 	end
 
-	local chest = MissionService.SpawnChest(run, function(player: Player)
-		claimRewards(run, player)
-	end)
-	local chestAt = if chest.PrimaryPart then chest.PrimaryPart.Position else nil
-	MissionKit.SetObjective(run, "Open the chest to claim your rewards", nil, nil, chestAt)
+	-- Raids already dropped a chest for their last encounter.
+	local chest = if run.Activity.Encounters
+		then run.Map:FindFirstChild(`Chest_{run.Cleared[#run.Cleared] and run.Cleared[#run.Cleared].Id or ""}`)
+		else MissionService.SpawnChest(run, function(player: Player)
+			claimRewards(run, player)
+		end)
+	local chestPart = if chest and chest:IsA("Model") then chest.PrimaryPart else nil
+	MissionKit.SetObjective(
+		run,
+		"Open the chest to claim your rewards",
+		nil,
+		nil,
+		if chestPart then chestPart.Position else nil
+	)
 
 	task.delay(delay, function()
 		for _, player in table.clone(run.Players) do
@@ -522,10 +581,20 @@ local function createRun(activity: ActivityDef, difficulty: DifficultyDef?): (Ru
 		ChestAt = nil,
 		Rewarded = {},
 		Medal = nil,
+		Arena = nil,
+		BossSpawn = nil,
+		Hazards = nil,
+		HazardCooldown = {},
+		EncounterEligible = {},
+		EncounterClaims = {},
+		OnEncounterCleared = function(_encounter: ActivityConfig.EncounterDef) end,
 		Wipe = function(_reason: string) end,
 	}
 	run.Wipe = function(reason: string)
 		wipe(run, reason)
+	end
+	run.OnEncounterCleared = function(encounter: ActivityConfig.EncounterDef)
+		onEncounterCleared(run, encounter)
 	end
 	runs[id] = run
 	setAttr(run, "Status", "Active")
@@ -535,11 +604,22 @@ local function createRun(activity: ActivityDef, difficulty: DifficultyDef?): (Ru
 	setAttr(run, "BossActive", false)
 	setPhase(run, nil, nil)
 
-	-- Falling off the map puts players back at the checkpoint.
+	-- Laser traps (every 0.1 s) and falls off the map (every 0.3 s). A failed
+	-- check is reported and skipped so one bad tick can't stop the watcher.
 	task.spawn(function()
+		local tick = 0
 		while run.Status ~= "Closed" do
-			MissionService.CheckFalls(run)
-			task.wait(0.25)
+			tick += 1
+			local ok, err = pcall(function()
+				MissionService.CheckHazards(run)
+				if tick % 3 == 0 then
+					MissionService.CheckFalls(run)
+				end
+			end)
+			if not ok then
+				warn(`[ActivityService] run {run.Id} watcher: {err}`)
+			end
+			task.wait(0.1)
 		end
 	end)
 	return run, nil
