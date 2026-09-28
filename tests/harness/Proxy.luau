@@ -76,13 +76,19 @@ local function baseParts(model)
 	return list
 end
 
+-- Like Roblox: the PrimaryPart's CFrame, else the model's WorldPivot.
 local function pivotOf(model)
 	local primary = model.PrimaryPart
 	if primary then
 		return primary.CFrame
 	end
-	local parts = baseParts(model)
-	return if #parts > 0 then parts[1].CFrame else roblox.CFrame.new()
+	local ok, pivot = pcall(function()
+		return model.WorldPivot
+	end)
+	if ok and typeof(pivot) == "CFrame" then
+		return pivot
+	end
+	return roblox.CFrame.new()
 end
 
 -- Engine methods Lune lacks, for Models.
@@ -94,6 +100,11 @@ local MODEL_METHODS = {
 		local delta = target * pivotOf(real):Inverse()
 		for _, part in baseParts(real) do
 			part.CFrame = delta * part.CFrame
+		end
+		if real.PrimaryPart == nil then
+			pcall(function()
+				real.WorldPivot = target
+			end)
 		end
 	end,
 	GetBoundingBox = function(real)

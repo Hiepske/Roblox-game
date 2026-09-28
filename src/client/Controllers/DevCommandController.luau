@@ -10,7 +10,7 @@
 	  /give <weaponId|name>  roll a weapon/armor at your power and equip it
 	  /giveall               one of every weapon (overflow in the vault)
 	  /launch <activity> [difficulty]
-	                         story | nightfall [adept|hero|legend] | raid
+	                         firstlight | relay | hollow | nightfall [adept|hero|legend] | raid
 	                         (ignores unlocks)
 	  /god                   toggle taking no damage
 	  /resetweek             reset weekly rewards (Powerful/Pinnacle again)

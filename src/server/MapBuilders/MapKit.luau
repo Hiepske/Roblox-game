@@ -742,6 +742,9 @@ local function recipe(b: Builder, shape: string, size: Vector3, cframe: CFrame, 
 	part.CanTouch = false
 	part:SetAttribute("TerrainShape", shape)
 	part:SetAttribute("TerrainMaterial", material.Name)
+	-- Recipes run in the order they were written (caves: fill rock, carve
+	-- Air, refill floors), whatever order a cloned folder lists them in.
+	part:SetAttribute("TerrainOrder", #b.Terrain:GetChildren())
 	return part
 end
 
@@ -800,8 +803,12 @@ local function applyRecipes(model: Instance, override: Enum.Material?)
 		return
 	end
 	local terrain = (game:GetService("Workspace") :: Workspace).Terrain
+	local recipes = folder:GetChildren()
+	table.sort(recipes, function(a: Instance, b: Instance): boolean
+		return (tonumber(a:GetAttribute("TerrainOrder")) or 0) < (tonumber(b:GetAttribute("TerrainOrder")) or 0)
+	end)
 	local count = 0
-	for _, part in folder:GetChildren() do
+	for _, part in recipes do
 		if part:IsA("BasePart") then
 			local shape = part:GetAttribute("TerrainShape")
 			local materialName = part:GetAttribute("TerrainMaterial")
@@ -826,6 +833,19 @@ local function applyRecipes(model: Instance, override: Enum.Material?)
 			count += 1
 			if count % 25 == 0 then
 				task.wait() -- big maps: don't hold the server for too long
+			end
+		end
+	end
+end
+
+-- After a map copy is moved by `offset` (activity instances), moves the
+-- world-space centers its client-animated props spin and fly around.
+function MapKit.ShiftMotion(model: Instance, offset: Vector3)
+	for _, descendant in model:GetDescendants() do
+		for _, attribute in { "SpinCenter", "FlightCenter" } do
+			local value = descendant:GetAttribute(attribute)
+			if typeof(value) == "Vector3" then
+				descendant:SetAttribute(attribute, value + offset)
 			end
 		end
 	end

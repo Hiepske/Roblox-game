@@ -365,7 +365,7 @@ describe("Client screens", function()
 				launch += 1
 			end
 		end
-		expect(launch).toBe(3)
+		expect(launch).toBe(5)
 		UIState.CloseMenu("Director")
 	end)
 

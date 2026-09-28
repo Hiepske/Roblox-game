@@ -100,6 +100,61 @@ local List: { BossDef } = {
 		Chest = true,
 	},
 	{
+		Id = "TIDE_MARSHAL",
+		Enemy = "CONC_TIDE_MARSHAL",
+		Immune = {
+			{
+				At = 0.66,
+				Break = "Pylons",
+				Text = "The Marshal draws on the tide pylons: destroy them",
+				Count = 3,
+				Enemy = "CONC_TIDE_PYLON",
+			},
+			{
+				At = 0.33,
+				Break = "Adds",
+				Text = "The relay compiles a Warden: break its escort",
+				Enemies = { CONC_WARDEN = 1, CONC_SENTRY = 3, CONC_DRONE_PRISM = 2 },
+				Waves = 1,
+			},
+		},
+		Attacks = {
+			{ Kind = "Barrage", Cooldown = 10, FirstAt = 6, Windup = 1.2, Count = 16, Damage = 9 },
+			{ Kind = "Slam", Cooldown = 14, FirstAt = 11, Windup = 1.8, Radius = 16, Damage = 60, Leap = true },
+		},
+		Adds = { Interval = 30, Enemies = { CONC_LANCER = 2, CONC_SENTRY = 1 }, MaxAlive = 6 },
+		HeavyAmmoEvery = 40,
+		Chest = true,
+	},
+	{
+		Id = "HOLLOW_PRIEST",
+		Enemy = "VEIL_HOLLOW_PRIEST",
+		Immune = {
+			{
+				At = 0.66,
+				Break = "Pylons",
+				Text = "The Priest hides in the choir's ward: shatter the ward crystals",
+				Count = 3,
+				Enemy = "VEIL_WARD_CRYSTAL",
+			},
+			{
+				At = 0.33,
+				Break = "Adds",
+				Text = "The choir rises to shield its voice",
+				Enemies = { VEIL_WRAITHKNIGHT = 1, VEIL_HUSK = 5, VEIL_SHADE_WISP = 2 },
+				Waves = 1,
+			},
+		},
+		Attacks = {
+			{ Kind = "Barrage", Cooldown = 11, FirstAt = 5, Windup = 1, Count = 14, Damage = 10 },
+			{ Kind = "Teleport", Cooldown = 12, FirstAt = 8 },
+			{ Kind = "Slam", Cooldown = 13, FirstAt = 14, Windup = 1.6, Radius = 14, Damage = 55 },
+		},
+		Adds = { Interval = 28, Enemies = { VEIL_HUSK = 3, VEIL_ACOLYTE = 1 }, MaxAlive = 7 },
+		HeavyAmmoEvery = 40,
+		Chest = true,
+	},
+	{
 		Id = "KALDREK",
 		Enemy = "RUST_KALDREK",
 		Immune = {

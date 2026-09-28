@@ -31,12 +31,14 @@ local function setPower(data, power)
 end
 
 describe("Playable activities", function()
-	it("offers a story mission, a hardened strike and a raid", function()
-		local types = {}
+	it("offers three story missions in order, a hardened strike and a raid", function()
+		local ids = {}
 		for _, activity in ActivityRules.Playable() do
-			table.insert(types, activity.Type)
+			table.insert(ids, activity.Id)
 		end
-		expect(types).toEqual({ "Story", "Nightfall", "Raid" })
+		expect(ids).toEqual({ "STORY_01", "STORY_02", "STORY_03", "NIGHTFALL", "RAID_VAULT_OF_ECHOES" })
+		expect(ActivityConfig.ById.STORY_02.Unlock.Story).toBe("STORY_01")
+		expect(ActivityConfig.ById.STORY_03.Unlock.Story).toBe("STORY_02")
 	end)
 
 	it("locks the hardened strike until First Light is done", function()
@@ -74,7 +76,7 @@ describe("Playable activities", function()
 		expect(#list).toBe(1)
 		expect(list[1].Encounter.Id).toBe("THE_ECHO_CHAMBER")
 		expect(list[1].Zone.Steps[2].Boss).toBe("HARROWMAW")
-		expect(#MissionRules.ZoneList(ActivityConfig.ById.STORY_01)).toBe(4)
+		expect(#MissionRules.ZoneList(ActivityConfig.ById.STORY_01)).toBe(5)
 	end)
 end)
 

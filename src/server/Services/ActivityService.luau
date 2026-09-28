@@ -473,7 +473,9 @@ local function createRun(activity: ActivityDef, difficulty: DifficultyDef?): (Ru
 
 	local map = template:Clone()
 	map.Name = `{activity.Map}_{id}`
+	local shift = origin - map:GetPivot().Position
 	map:PivotTo(CFrame.new(origin))
+	MapKit.ShiftMotion(map, shift)
 	map.Parent = WorldService.Folder("Instances")
 	MapKit.ApplyTerrain(map)
 

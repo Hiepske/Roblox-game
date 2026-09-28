@@ -465,8 +465,10 @@ WorldService only generates maps that aren't already there.
   melee, super, passive), a class ability and a jump.
 - **Activities**: 8 story missions (350→440), 4 patrol zones, 3 strikes, a Nightfall
   with 3 difficulties and modifiers, 1 dungeon (2 encounters), 1 raid (3 encounters)
-  and PvP. **Playable now:** First Light, the Hollow Spire Nightfall and raid encounter
-  1 (The Echo Chamber); the rest are configured and appear once they get a map.
+  and PvP. **Playable now:** the story missions First Light (Frostreach, 350),
+  Sunken Relay (Meridian Coast, 380) and The Hollow Dark (Hollowmere caves, 410,
+  flashlights), unlocked in that order; the Hollow Spire Nightfall; and the raid.
+  The rest are configured and appear once they get a map.
 - **Enemies**: 3 factions (Rustborn, Veiled, Concord). Each has minor, major,
   flying and boss units. Bosses carry scripted mechanics (immune phases, damage
   windows, add waves, enrage timers).

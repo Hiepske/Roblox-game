@@ -135,9 +135,8 @@ function MissionRules.Requirements(activity: ActivityDef): { Requirement }
 	for _, entry in MissionRules.ZoneList(activity) do
 		local zone = entry.Zone
 		local where = `{activity.Id}/{zone.Id}`
-		if zone.Checkpoint then
-			need("Marker", zone.Checkpoint, where)
-		end
+		-- Every zone moves the checkpoint: Checkpoint, or the marker CP_<zone Id>.
+		need("Marker", zone.Checkpoint or `CP_{zone.Id}`, where)
 		if zone.Gate then
 			need("Gate", zone.Gate, where)
 		end

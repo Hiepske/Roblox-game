@@ -19,6 +19,7 @@ local order: { Controller } = {
 	require(Controllers:WaitForChild("CueController")) :: any,
 	require(Controllers:WaitForChild("WorldMotionController")) :: any,
 	require(Controllers:WaitForChild("AreaController")) :: any,
+	require(Controllers:WaitForChild("FlashlightController")) :: any,
 	require(Controllers:WaitForChild("DirectorController")) :: any,
 	require(Controllers:WaitForChild("InventoryController")) :: any,
 	require(Controllers:WaitForChild("LootController")) :: any,

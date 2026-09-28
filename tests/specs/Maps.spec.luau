@@ -3,6 +3,9 @@
 -- activity configs reference exists in the map.
 local roblox = require("@lune/roblox")
 VirtualGame.SetGlobal("Instance", roblox.Instance)
+for _, name in { "NumberRange", "NumberSequence", "ColorSequence", "ColorSequenceKeypoint" } do
+	VirtualGame.SetGlobal(name, (roblox :: any)[name])
+end
 
 local Shared = game.ReplicatedStorage.Shared
 local ActivityConfig = require(Shared.Config.ActivityConfig)
@@ -98,6 +101,35 @@ describe("Activity maps", function()
 			local missing = MapMarkers.Missing(model, activity)
 			if #missing > 0 then
 				error("missing: " .. table.concat(missing, ", "))
+			end
+		end)
+
+		it(activity.Name .. " numbers its terrain recipes in build order", function()
+			local model = require(Maps[activity.Map .. "Builder"]).Build()
+			local seen = {}
+			for _, recipe in model:FindFirstChild("Terrain"):GetChildren() do
+				local order = recipe:GetAttribute("TerrainOrder")
+				expect(type(order)).toBe("number")
+				expect(seen[order]).toBeNil()
+				seen[order] = true
+			end
+		end)
+
+		it(activity.Name .. " stays in budget, anchored, with invisible markers", function()
+			local model = require(Maps[activity.Map .. "Builder"]).Build()
+			local parts = MapKit.CountParts(model)
+			print(`{activity.Map} parts: {parts}, terrain recipes: {#model:FindFirstChild("Terrain"):GetChildren()}`)
+			expect(parts < 15000).toBe(true)
+			for _, descendant in model:GetDescendants() do
+				if descendant:IsA("BasePart") and not descendant.Anchored then
+					error(descendant:GetFullName() .. " isn't anchored")
+				end
+			end
+			for _, marker in model:FindFirstChild("Markers"):GetDescendants() do
+				if marker:IsA("BasePart") then
+					expect(marker.Transparency).toBe(1)
+					expect(marker.CanCollide).toBe(false)
+				end
 			end
 		end)
 	end

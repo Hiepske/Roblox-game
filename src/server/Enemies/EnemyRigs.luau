@@ -618,6 +618,46 @@ local function buildObject(def: EnemyDef): Model
 	return model
 end
 
+-- Veiled objects are crystal growths instead of machines.
+local function buildCrystal(def: EnemyDef): Model
+	local palette = EnemyRigs.PaletteFor(def)
+	local model = Instance.new("Model")
+	local root = machineRoot(model, Vector3.new(4, 8, 4))
+	machinePart(model, root, {
+		Name = "Base",
+		Size = Vector3.new(6, 1.6, 6),
+		Offset = CFrame.new(0, -3.2, 0) * CFrame.Angles(0, math.rad(20), 0),
+		Color = Color3.fromRGB(46, 50, 48),
+		Material = Enum.Material.Slate,
+	})
+	for index = 0, 4 do
+		local angle = index / 5 * math.pi * 2
+		machinePart(model, root, {
+			Name = "Shard",
+			Size = Vector3.new(1.2, 5 + (index % 2) * 2, 1.2),
+			Offset = CFrame.new(math.cos(angle) * 1.6, -0.5, math.sin(angle) * 1.6)
+				* CFrame.Angles(math.sin(angle) * 0.35, angle, -math.cos(angle) * 0.35),
+			Color = palette.Accent,
+			Material = Enum.Material.Glass,
+		})
+	end
+	-- The glowing heart is the head (crit spot).
+	machinePart(model, root, {
+		Name = "Head",
+		Size = Vector3.new(1.8, 4.2, 1.8),
+		Offset = CFrame.new(0, 0.6, 0),
+		Color = palette.Accent,
+		Material = Enum.Material.Neon,
+	})
+	local light = Instance.new("PointLight")
+	light.Color = palette.Accent
+	light.Range = 16
+	light.Brightness = 2
+	light.Parent = root
+	finishMachine(model, def, "Object")
+	return model
+end
+
 local MACHINES: { [string]: (EnemyDef) -> Model } = {
 	Turret = buildTurret,
 	Object = buildObject,
@@ -626,6 +666,9 @@ local MACHINES: { [string]: (EnemyDef) -> Model } = {
 local function machineFor(def: EnemyDef): ((EnemyDef) -> Model)?
 	if def.Role == "Flying" and def.Tier ~= "Boss" then
 		return buildDrone
+	end
+	if def.Role == "Object" and def.Faction == "Veiled" then
+		return buildCrystal
 	end
 	return MACHINES[def.Role]
 end

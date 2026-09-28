@@ -3,7 +3,9 @@
 	Props
 	Reusable decoration built from parts: crates, containers, pipes, cables,
 	antennas, banners, lamps, trees, benches, market stalls, NPC figures,
-	ships, cranes, chests, city buildings and rings. Every prop is grouped
+	ships, cranes, chests, city buildings and rings, plus mission dressing:
+	snowy pines, cottages, fences, fires, weather, scrap piles, watchtowers,
+	crystals, palms and vines. Every prop is grouped
 	into its own Model so repeated decoration stays tidy (and can be swapped
 	for real art later by replacing the Model).
 
@@ -720,6 +722,434 @@ function Props.Ring(
 		})
 		segment.CanCollide = false
 		segment.CanQuery = false
+	end
+	return model
+end
+
+-- Mission dressing -------------------------------------------------------------------------
+
+local SNOW = Color3.fromRGB(235, 240, 246)
+local PINE = Color3.fromRGB(46, 78, 58)
+
+-- A snowy pine: a trunk and three stacked tiers, each dusted with snow.
+function Props.Pine(b: Builder, base: Vector3, height: number, parent: Instance?): Model
+	local model = group(b, "Pine", parent)
+	MapKit.Rod(b, base, base + Vector3.new(0, height * 0.3, 0), height * 0.07, P.Bark, Enum.Material.Wood, model)
+	local turn = b.Rng:NextNumber(0, math.pi)
+	for tier = 0, 2 do
+		local width = height * (0.55 - tier * 0.14)
+		local tierHeight = height * 0.3
+		local y = height * (0.2 + tier * 0.24) + tierHeight / 2
+		local cframe = CFrame.new(base + Vector3.new(0, y, 0)) * CFrame.Angles(0, turn + tier * 0.7, 0)
+		for side = 0, 1 do
+			local wedge = MapKit.Wedge(
+				b,
+				Vector3.new(width, tierHeight, width / 2),
+				cframe * CFrame.Angles(0, side * math.pi, 0) * CFrame.new(0, 0, -width / 4),
+				PINE,
+				Enum.Material.Grass,
+				model
+			)
+			wedge.CanCollide = tier == 0
+		end
+		local cap = MapKit.Wedge(
+			b,
+			Vector3.new(width * 0.55, tierHeight * 0.35, width * 0.28),
+			cframe * CFrame.new(0, tierHeight * 0.33, -width * 0.14),
+			SNOW,
+			Enum.Material.Snow,
+			model
+		)
+		cap.CanCollide = false
+	end
+	return model
+end
+
+-- A cottage: a solid body, a gabled roof (optionally snow-covered), a door,
+-- glowing windows and a chimney. `cframe` stands on the ground, facing the street.
+function Props.House(
+	b: Builder,
+	cframe: CFrame,
+	size: Vector3,
+	wall: Color3,
+	roof: Color3,
+	snowy: boolean,
+	parent: Instance?
+): Model
+	local model = group(b, "House", parent)
+	local body = MapKit.Block(b, size, cframe * CFrame.new(0, size.Y / 2, 0), wall, Enum.Material.WoodPlanks, model)
+	model.PrimaryPart = body
+	local roofHeight = size.X * 0.35
+	for side = -1, 1, 2 do
+		-- Each half slopes down from the ridge (x = 0) to its eave.
+		local wedge = MapKit.Wedge(
+			b,
+			Vector3.new(size.Z + 1.5, roofHeight, size.X / 2 + 0.8),
+			cframe
+				* CFrame.new(side * (size.X / 4 + 0.2), size.Y + roofHeight / 2, 0)
+				* CFrame.Angles(0, -side * math.rad(90), 0),
+			roof,
+			Enum.Material.Slate,
+			model
+		)
+		if snowy then
+			MapKit.Wedge(
+				b,
+				Vector3.new(size.Z + 1.2, roofHeight + 0.3, size.X / 2 + 1.1),
+				wedge.CFrame * CFrame.new(0, 0.15, 0),
+				SNOW,
+				Enum.Material.Snow,
+				model
+			).CanCollide =
+				false
+		end
+	end
+	-- Door and windows on the front (-Z) face.
+	local front = -size.Z / 2 - 0.1
+	MapKit.Block(b, Vector3.new(3.2, 6.5, 0.4), cframe * CFrame.new(0, 3.25, front), P.Bark, Enum.Material.Wood, model)
+	for _, x in { -size.X / 3, size.X / 3 } do
+		local window = MapKit.Neon(
+			b,
+			Vector3.new(2.6, 2.4, 0.2),
+			cframe * CFrame.new(x, size.Y * 0.55, front),
+			Color3.fromRGB(255, 190, 110),
+			model
+		)
+		window.Transparency = 0.2
+		MapKit.Block(
+			b,
+			Vector3.new(3.2, 0.4, 0.8),
+			cframe * CFrame.new(x, size.Y * 0.55 - 1.4, front - 0.2),
+			P.Bark,
+			Enum.Material.Wood,
+			model
+		)
+	end
+	local chimney = MapKit.Block(
+		b,
+		Vector3.new(2, roofHeight + 3, 2),
+		cframe * CFrame.new(size.X / 4, size.Y + (roofHeight + 3) / 2, size.Z / 4),
+		P.ConcreteDark,
+		Enum.Material.Brick,
+		model
+	)
+	if snowy then
+		MapKit.Block(
+			b,
+			Vector3.new(2.3, 0.4, 2.3),
+			chimney.CFrame * CFrame.new(0, (roofHeight + 3) / 2, 0),
+			SNOW,
+			Enum.Material.Snow,
+			model
+		)
+	end
+	return model
+end
+
+-- A wooden fence between two points.
+function Props.Fence(b: Builder, from: Vector3, to: Vector3, color: Color3?, parent: Instance?): Model
+	local model = group(b, "Fence", parent)
+	local offset = Vector3.new(to.X - from.X, 0, to.Z - from.Z)
+	local length = offset.Magnitude
+	if length < 0.5 then
+		return model
+	end
+	local wood = color or P.Bark
+	local posts = math.max(1, math.floor(length / 5))
+	for index = 0, posts do
+		local point = from + offset * (index / posts)
+		MapKit.Block(
+			b,
+			Vector3.new(0.5, 3.4, 0.5),
+			CFrame.new(point + Vector3.new(0, 1.7, 0)),
+			wood,
+			Enum.Material.Wood,
+			model
+		)
+	end
+	for _, y in { 1.2, 2.6 } do
+		local middle = from + offset / 2 + Vector3.new(0, y, 0)
+		MapKit.Block(
+			b,
+			Vector3.new(0.25, 0.4, length),
+			CFrame.lookAt(middle, middle + offset.Unit),
+			wood,
+			Enum.Material.Wood,
+			model
+		)
+	end
+	return model
+end
+
+-- Flames and a glow at `position` (burning wrecks, braziers).
+function Props.Fire(b: Builder, position: Vector3, size: number, parent: Instance?): Part
+	local anchor = MapKit.Part(b, {
+		Name = "Fire",
+		Size = Vector3.new(1, 1, 1),
+		CFrame = CFrame.new(position),
+		Transparency = 1,
+		CanCollide = false,
+		CanQuery = false,
+		CastShadow = false,
+		Parent = parent,
+	})
+	local fire = Instance.new("Fire")
+	fire.Size = size
+	fire.Heat = size * 1.5
+	fire.Color = Color3.fromRGB(255, 140, 40)
+	fire.SecondaryColor = Color3.fromRGB(255, 60, 20)
+	fire.Parent = anchor
+	MapKit.Light(anchor, Color3.fromRGB(255, 150, 70), size * 4, 2)
+	return anchor
+end
+
+-- Falling weather over a box of `size` centered at `center`.
+-- `kind` = "Snow" | "Ash" | "Rain" | "Spores" (pale, drifting).
+function Props.Weather(b: Builder, center: Vector3, size: Vector3, kind: string, parent: Instance?): Part
+	local emitterPart = MapKit.Part(b, {
+		Name = `Weather_{kind}`,
+		Size = Vector3.new(size.X, 2, size.Z),
+		CFrame = CFrame.new(center),
+		Transparency = 1,
+		CanCollide = false,
+		CanQuery = false,
+		CastShadow = false,
+		Parent = parent,
+	})
+	emitterPart.CanTouch = false
+	local emitter = Instance.new("ParticleEmitter")
+	emitter.EmissionDirection = Enum.NormalId.Bottom
+	emitter.Lifetime = NumberRange.new(6, 10)
+	emitter.LightEmission = 0.3
+	emitter.Rotation = NumberRange.new(0, 360)
+	if kind == "Rain" then
+		emitter.Rate = 180
+		emitter.Speed = NumberRange.new(70, 90)
+		emitter.Size = NumberSequence.new(0.12)
+		emitter.Lifetime = NumberRange.new(1.2, 1.6)
+		emitter.Color = ColorSequence.new(Color3.fromRGB(190, 210, 225))
+		emitter.Transparency = NumberSequence.new(0.4)
+	elseif kind == "Spores" then
+		emitter.Rate = 30
+		emitter.Speed = NumberRange.new(0.5, 2)
+		emitter.Size = NumberSequence.new(0.2)
+		emitter.Color = ColorSequence.new(Color3.fromRGB(200, 255, 180))
+		emitter.LightEmission = 1
+		emitter.Acceleration = Vector3.new(0.3, 0.6, 0.2)
+		emitter.Lifetime = NumberRange.new(10, 14)
+	elseif kind == "Ash" then
+		emitter.Rate = 40
+		emitter.Speed = NumberRange.new(2, 5)
+		emitter.Size = NumberSequence.new(0.25)
+		emitter.Color = ColorSequence.new(Color3.fromRGB(255, 150, 80))
+		emitter.LightEmission = 1
+		emitter.Acceleration = Vector3.new(1.5, 0.4, 0)
+	else
+		emitter.Rate = 70
+		emitter.Speed = NumberRange.new(4, 7)
+		emitter.Size = NumberSequence.new(0.35)
+		emitter.Color = ColorSequence.new(Color3.fromRGB(255, 255, 255))
+		emitter.Acceleration = Vector3.new(2, 0, 1)
+		emitter.SpreadAngle = Vector2.new(15, 15)
+	end
+	emitter.Parent = emitterPart
+	return emitterPart
+end
+
+-- Chimney/vent smoke rising from `position`.
+function Props.Smoke(b: Builder, position: Vector3, size: number, color: Color3?, parent: Instance?): Part
+	local anchor = MapKit.Part(b, {
+		Name = "Smoke",
+		Size = Vector3.new(1, 1, 1),
+		CFrame = CFrame.new(position),
+		Transparency = 1,
+		CanCollide = false,
+		CanQuery = false,
+		CastShadow = false,
+		Parent = parent,
+	})
+	local smoke = Instance.new("Smoke")
+	smoke.Size = size
+	smoke.RiseVelocity = size * 0.8
+	smoke.Opacity = 0.18
+	smoke.Color = color or Color3.fromRGB(200, 200, 205)
+	smoke.Parent = anchor
+	return anchor
+end
+
+-- A string of glowing bulbs sagging between two points.
+function Props.StringLights(b: Builder, from: Vector3, to: Vector3, color: Color3, parent: Instance?): Model
+	local model = Props.Cable(b, from, to, 1.6, parent)
+	model.Name = "StringLights"
+	local bulbs = math.max(2, math.floor((to - from).Magnitude / 4))
+	for index = 1, bulbs - 1 do
+		local t = index / bulbs
+		local point = from:Lerp(to, t) - Vector3.new(0, math.sin(t * math.pi) * 1.6, 0)
+		local bulb =
+			MapKit.Neon(b, Vector3.new(0.45, 0.45, 0.45), CFrame.new(point - Vector3.new(0, 0.3, 0)), color, model)
+		bulb.Shape = Enum.PartType.Ball
+	end
+	return model
+end
+
+-- A heap of rusted scrap: tilted plates, a tyre and a barrel.
+function Props.ScrapPile(b: Builder, center: Vector3, size: number, parent: Instance?): Model
+	local model = group(b, "ScrapPile", parent)
+	local rng = b.Rng
+	local colors = { P.Rust, P.DarkMetal, P.Gunmetal, Color3.fromRGB(120, 60, 34) }
+	for index = 1, 7 do
+		local piece = size * rng:NextNumber(0.35, 0.7)
+		local angle = rng:NextNumber(0, math.pi * 2)
+		local distance = rng:NextNumber(0, size * 0.4)
+		MapKit.Block(
+			b,
+			Vector3.new(piece, piece * rng:NextNumber(0.2, 0.6), piece * rng:NextNumber(0.5, 1)),
+			CFrame.new(
+				center
+					+ Vector3.new(math.cos(angle) * distance, piece * 0.25 + index * 0.25, math.sin(angle) * distance)
+			)
+				* CFrame.Angles(rng:NextNumber(-0.5, 0.5), rng:NextNumber(0, math.pi), rng:NextNumber(-0.5, 0.5)),
+			colors[index % #colors + 1],
+			Enum.Material.CorrodedMetal,
+			model
+		)
+	end
+	MapKit.Part(b, {
+		Name = "Tyre",
+		Shape = Enum.PartType.Cylinder,
+		Size = Vector3.new(size * 0.18, size * 0.45, size * 0.45),
+		CFrame = CFrame.new(center + Vector3.new(size * 0.35, size * 0.2, 0))
+			* CFrame.Angles(0, rng:NextNumber(0, 3), 0.3),
+		Color = P.Black,
+		Material = Enum.Material.Rubber,
+		Parent = model,
+	})
+	Props.Barrel(b, center + Vector3.new(-size * 0.4, 0, size * 0.2), P.Rust, model)
+	return model
+end
+
+-- A steel watchtower: four legs, a cabin with a searchlight.
+function Props.Watchtower(b: Builder, base: Vector3, height: number, parent: Instance?): Model
+	local model = group(b, "Watchtower", parent)
+	for _, x in { -3, 3 } do
+		for _, z in { -3, 3 } do
+			MapKit.Rod(
+				b,
+				base + Vector3.new(x * 1.3, 0, z * 1.3),
+				base + Vector3.new(x, height, z),
+				0.8,
+				P.DarkMetal,
+				Enum.Material.Metal,
+				model
+			)
+		end
+	end
+	MapKit.Block(
+		b,
+		Vector3.new(9, 1, 9),
+		CFrame.new(base + Vector3.new(0, height, 0)),
+		P.DarkMetal,
+		Enum.Material.DiamondPlate,
+		model
+	)
+	MapKit.Block(
+		b,
+		Vector3.new(8, 4, 8),
+		CFrame.new(base + Vector3.new(0, height + 2.5, 0)),
+		P.Rust,
+		Enum.Material.CorrodedMetal,
+		model
+	)
+	MapKit.Block(
+		b,
+		Vector3.new(9.5, 0.8, 9.5),
+		CFrame.new(base + Vector3.new(0, height + 4.9, 0)),
+		P.DarkMetal,
+		Enum.Material.Metal,
+		model
+	)
+	local lamp =
+		MapKit.Neon(b, Vector3.new(1.6, 1.6, 1.6), CFrame.new(base + Vector3.new(0, height + 6, 0)), P.Orange, model)
+	MapKit.SpotLight(lamp, P.Orange, 60, 40, Enum.NormalId.Front)
+	return model
+end
+
+-- A glowing crystal cluster (caves, the Veiled). Crystals don't block bullets.
+function Props.Crystal(b: Builder, base: Vector3, height: number, color: Color3, parent: Instance?): Model
+	local model = group(b, "Crystal", parent)
+	local rng = b.Rng
+	for index = 1, 4 do
+		local h = height * rng:NextNumber(0.45, 1)
+		local w = h * rng:NextNumber(0.18, 0.28)
+		local tilt = CFrame.Angles(rng:NextNumber(-0.45, 0.45), rng:NextNumber(0, math.pi), rng:NextNumber(-0.45, 0.45))
+		local offset = if index == 1
+			then Vector3.zero
+			else Vector3.new(rng:NextNumber(-1, 1), 0, rng:NextNumber(-1, 1)) * height * 0.25
+		local shard = MapKit.Part(b, {
+			Name = "Shard",
+			Size = Vector3.new(w, h, w),
+			CFrame = CFrame.new(base + offset) * tilt * CFrame.new(0, h / 2, 0),
+			Color = color,
+			Material = Enum.Material.Glass,
+			Transparency = 0.15,
+			CastShadow = false,
+			Parent = model,
+		})
+		shard.CanQuery = false
+		if index == 1 then
+			local core = MapKit.Neon(b, Vector3.new(w * 0.4, h * 0.7, w * 0.4), shard.CFrame, color, model)
+			MapKit.Light(core, color, height * 2.5, 1.5)
+		end
+	end
+	return model
+end
+
+-- A leaning palm tree.
+function Props.Palm(b: Builder, base: Vector3, height: number, parent: Instance?): Model
+	local model = group(b, "Palm", parent)
+	local rng = b.Rng
+	local lean = Vector3.new(rng:NextNumber(-1, 1), 0, rng:NextNumber(-1, 1)) * height * 0.25
+	local top = base + Vector3.new(0, height, 0) + lean
+	MapKit.Rod(b, base, top, height * 0.06, P.Bark, Enum.Material.Wood, model)
+	for index = 1, 6 do
+		local angle = index / 6 * math.pi * 2
+		local frond = MapKit.Part(b, {
+			Name = "Frond",
+			Size = Vector3.new(height * 0.12, 0.3, height * 0.45),
+			CFrame = CFrame.new(top)
+				* CFrame.Angles(0, angle, 0)
+				* CFrame.Angles(math.rad(-25), 0, 0)
+				* CFrame.new(0, 0, -height * 0.2),
+			Color = if index % 2 == 0 then P.Leaf else P.LeafDark,
+			Material = Enum.Material.Grass,
+			CanCollide = false,
+			Parent = model,
+		})
+		frond.CanQuery = false
+	end
+	return model
+end
+
+-- Hanging vines down a wall face (overgrowth). `top` is where they hang from.
+function Props.Vines(b: Builder, top: Vector3, facing: Vector3, width: number, length: number, parent: Instance?): Model
+	local model = group(b, "Vines", parent)
+	local rng = b.Rng
+	local across = Vector3.new(-facing.Z, 0, facing.X).Unit
+	local count = math.max(2, math.floor(width / 2.5))
+	for index = 1, count do
+		local point = top + across * ((index / count - 0.5) * width) + facing.Unit * 0.3
+		local hang = length * rng:NextNumber(0.4, 1)
+		local vine = MapKit.Part(b, {
+			Name = "Vine",
+			Size = Vector3.new(0.5, hang, 0.25),
+			CFrame = CFrame.lookAt(point - Vector3.new(0, hang / 2, 0), point - Vector3.new(0, hang / 2, 0) + facing),
+			Color = if index % 2 == 0 then P.Leaf else P.LeafDark,
+			Material = Enum.Material.Grass,
+			CanCollide = false,
+			CastShadow = false,
+			Parent = model,
+		})
+		vine.CanQuery = false
 	end
 	return model
 end

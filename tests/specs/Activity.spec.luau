@@ -13,6 +13,11 @@ local CFrame = roblox.CFrame
 
 local clock = 0
 local function vwait(seconds)
+	if seconds == nil then
+		-- task.wait() with no time: just yield a frame (terrain batches).
+		realTask.wait()
+		return 0
+	end
 	local start = clock
 	local target = clock + (seconds or 0.03)
 	repeat
@@ -45,6 +50,9 @@ end
 
 VirtualGame.SetGlobal("task", fakeTask)
 VirtualGame.SetGlobal("Instance", Proxy.Instance)
+for _, name in { "NumberRange", "NumberSequence", "ColorSequence", "ColorSequenceKeypoint" } do
+	VirtualGame.SetGlobal(name, (roblox :: any)[name])
+end
 VirtualGame.SetGlobal("RaycastParams", {
 	new = function()
 		return {}
@@ -73,6 +81,7 @@ local TableUtil = require(Shared.Util.TableUtil)
 local PlayersService = { PlayerRemoving = Proxy.Signal() }
 VirtualGame.Services.Players = PlayersService
 VirtualGame.Services.TeleportService = {}
+local function noop() end
 VirtualGame.Services.Workspace = {
 	GetServerTimeNow = function()
 		return clock
@@ -80,6 +89,7 @@ VirtualGame.Services.Workspace = {
 	Raycast = function()
 		return nil
 	end,
+	Terrain = { FillBlock = noop, FillBall = noop, FillCylinder = noop, FillWedge = noop },
 }
 
 local function makePlayer(name)
@@ -303,7 +313,7 @@ VirtualGame.Preload(Server.Services.NetService, {
 	Notify = function() end,
 })
 local templates = {}
-for _, name in { "FirstLight", "HollowSpire", "VaultOfEchoes" } do
+for _, name in { "FirstLight", "SunkenRelay", "HollowDark", "HollowSpire", "VaultOfEchoes" } do
 	templates[name] = require(Server.MapBuilders[name .. "Builder"]).Build()
 end
 local instancesFolder = Proxy.Instance.new("Folder")
@@ -375,39 +385,34 @@ describe("Story mission: First Light", function()
 		expect(near(chars[player].Position, marker(run, "PlayerStart").Position, 3)).toBe(true)
 		advance(0.5)
 		expect(run.ZoneIndex).toBe(1)
-		expect(run.Folder:GetAttribute("ZoneName")).toBe("The Approach")
-		expect(run.Folder:GetAttribute("ObjectiveText")).toBe("Reach the outpost")
+		expect(run.Folder:GetAttribute("ZoneName")).toBe("The Crash Site")
+		expect(run.Folder:GetAttribute("ObjectiveText")).toBe("Search the wreckage")
 		expect(run.Folder:GetAttribute("HasWaypoint")).toBe(true)
+		expect(run.Checkpoint).toBe("CP_CrashSite")
 	end)
 
-	it("clears the approach when a player reaches the outpost and moves the checkpoint", function()
-		moveTo(player, marker(run, "Zone_Outpost").Position)
+	it("brings the scavengers in through rifts once the wreck is reached", function()
+		moveTo(player, marker(run, "Wreck").Position)
 		advance(0.5)
-		expect(run.ZoneIndex).toBe(2)
-		expect(run.Folder:GetAttribute("ZoneName")).toBe("Outpost Courtyard")
-		expect(run.Checkpoint).toBe("Checkpoint_Outpost")
-		expect(run.Folder:GetAttribute("ZoneLog")).toBe("The Approach=1")
-	end)
-
-	it("brings the first wave in through rifts", function()
+		expect(run.StepIndex).toBe(2)
 		expect(#alive(run.Id)).toBe(0) -- still stepping out of the rifts
 		expect((cues.Portal or 0) > 0).toBe(true)
 		arrive()
-		expect(#alive(run.Id)).toBe(7)
-		expect(run.Folder:GetAttribute("ObjectiveCount")).toBe("0/14")
-		expect(run.Folder:GetAttribute("Wave")).toBe("1/3")
+		expect(#alive(run.Id)).toBe(6)
+		expect(run.Folder:GetAttribute("ObjectiveCount")).toBe("0/10")
+		expect(run.Folder:GetAttribute("Wave")).toBe("1/2")
 	end)
 
 	it("sends the next wave at 80% cleared, by dropship", function()
 		local list = alive(run.Id)
-		for index = 1, 5 do
+		for index = 1, 4 do
 			kill(list[index])
 		end
 		advance(0.5)
-		expect(run.Folder:GetAttribute("Wave")).toBe("1/3") -- 5 of 7 isn't 80% yet
-		kill(list[6])
+		expect(run.Folder:GetAttribute("Wave")).toBe("1/2") -- 4 of 6 isn't 80% yet
+		kill(list[5])
 		advance(0.5)
-		expect(run.Folder:GetAttribute("Wave")).toBe("2/3")
+		expect(run.Folder:GetAttribute("Wave")).toBe("2/2")
 		expect(cues.Dropship).toBe(1)
 		arrive()
 		local kinds = {}
@@ -415,19 +420,17 @@ describe("Story mission: First Light", function()
 			kinds[enemy.Def.Id] = (kinds[enemy.Def.Id] or 0) + 1
 		end
 		expect(kinds.RUST_SKIFF_DRONE).toBe(2)
-		expect(kinds.RUST_SNIPER).toBe(1)
 	end)
 
-	it("sends the last wave on the timer and opens the gate when every wave is dead", function()
-		advance(46)
-		expect(run.Folder:GetAttribute("Wave")).toBe("3/3")
-		arrive()
+	it("opens the shield gate into the village when every wave is dead", function()
 		killAll(run.Id)
 		advance(0.5)
-		expect(run.ZoneIndex).toBe(3)
-		expect(run.Checkpoint).toBe("Checkpoint_Terminal")
-		expect(run.Map.Doors.Door_Terminal.CanCollide).toBe(false)
+		expect(run.ZoneIndex).toBe(2)
+		expect(run.Folder:GetAttribute("ZoneName")).toBe("Frostfall Village")
+		expect(run.Checkpoint).toBe("CP_Village")
+		expect(run.Map.Gates.Gate_CrashSite.Field.CanCollide).toBe(false)
 		expect(cues.GateOpen).toBe(1)
+		expect(string.find(run.Folder:GetAttribute("ZoneLog"), "The Crash Site=", 1, true) ~= nil).toBe(true)
 	end)
 
 	it("respawns a dead player at the checkpoint after 5 seconds", function()
@@ -437,24 +440,89 @@ describe("Story mission: First Light", function()
 		expect(FakeCharacters.IsAlive(player)).toBe(false)
 		advance(1.5)
 		expect(FakeCharacters.IsAlive(player)).toBe(true)
-		expect(near(chars[player].Position, marker(run, "Checkpoint_Terminal").Position)).toBe(true)
+		expect(near(chars[player].Position, marker(run, "CP_Village").Position)).toBe(true)
 		expect(run.Folder:GetAttribute("Deaths_" .. player.UserId)).toBe(1)
 	end)
 
-	it("hacks the terminal only while someone stands in the zone", function()
-		advance(5)
-		expect(run.ZoneIndex).toBe(3) -- not in the zone yet
-		expect(#alive(run.Id) > 0).toBe(true) -- waves attack the terminal
-		moveTo(player, marker(run, "Zone_Terminal").Position)
-		advance(30)
-		expect(run.ZoneIndex).toBe(3)
-		advance(16)
+	it("puts snipers on the village roofs", function()
+		moveTo(player, marker(run, "VillageGate").Position)
+		advance(0.5)
+		arrive()
+		local list = alive(run.Id)
+		for index = 1, #list - 1 do
+			kill(list[index])
+		end
+		advance(0.5)
+		arrive()
+		local snipers = 0
+		for _, enemy in alive(run.Id) do
+			if enemy.Def.Id == "RUST_SNIPER" then
+				snipers += 1
+				expect(enemy.Root.Position.Y > 15).toBe(true)
+			end
+		end
+		expect(snipers).toBe(2)
+	end)
+
+	it("takes the outpost courtyard, then hacks the uplink only while someone stands there", function()
+		expect(ActivityService.JumpToZone(player, 3)).toBe(true)
+		advance(0.5)
+		expect(run.Folder:GetAttribute("ZoneName")).toBe("Kessrin Outpost")
+		arrive()
+		local turrets = 0
+		for _, enemy in alive(run.Id) do
+			if enemy.Def.Id == "RUST_TURRET" then
+				turrets += 1
+			end
+		end
+		expect(turrets).toBe(2)
+		killAll(run.Id)
+		advance(0.5)
+		arrive()
+		killAll(run.Id)
+		advance(0.5)
+		expect(run.StepIndex).toBe(2)
+		advance(10)
+		expect(#alive(run.Id) > 0).toBe(true) -- waves attack the uplink
+		expect(run.StepIndex).toBe(2) -- not in the zone yet
+		moveTo(player, marker(run, "Uplink").Position)
+		advance(40)
+		expect(run.StepIndex).toBe(2)
+		advance(21)
 		expect(run.ZoneIndex).toBe(4)
-		expect(run.Map.Doors.Door_Boss.CanCollide).toBe(false)
+		expect(run.Map.Gates.Gate_Outpost.Slab.CanCollide).toBe(false)
+	end)
+
+	it("destroys the reactor's regulators, which extends the bridge to the pit", function()
+		killAll(run.Id)
+		advance(0.5)
+		arrive()
+		killAll(run.Id)
+		advance(0.5)
+		arrive()
+		killAll(run.Id)
+		advance(0.5)
+		expect(run.StepIndex).toBe(2)
+		local regulators = alive(run.Id, "z4s2")
+		local objects = {}
+		for _, enemy in regulators do
+			if enemy.Def.Id == "RUST_GENERATOR" then
+				table.insert(objects, enemy)
+			end
+		end
+		expect(#objects).toBe(3)
+		expect(run.Folder:GetAttribute("ObjectiveCount")).toBe("0/3")
+		for _, object in objects do
+			kill(object)
+		end
+		advance(0.5)
+		expect(run.ZoneIndex).toBe(5)
+		expect(run.Map.Gates.Gate_Reactor.Deck.CanCollide).toBe(true)
+		expect(run.Checkpoint).toBe("CP_ScrapPit")
 	end)
 
 	it("fights the Scrap Warden: 15-30 captains of health, attacks and arena ammo", function()
-		killAll(run.Id, "z3") -- leftover terminal waves
+		killAll(run.Id, "z4") -- leftover reactor waves
 		advance(0.5)
 		local boss = alive(run.Id, "boss")[1]
 		expect(boss.Def.Id).toBe("RUST_SCRAP_WARDEN")
@@ -690,6 +758,88 @@ describe("Raid: Vault of Echoes, fireteam", function()
 		expect(FakeCharacters.IsAlive(friend)).toBe(true)
 		expect(#alive(run.Id, "boss")).toBe(1)
 	end)
+end)
+
+-- Plays whatever step the run is on like a (very good) player would.
+local function autoplay(player, run, onBoss)
+	local seenBoss = false
+	for _ = 1, 500 do
+		if run.Status ~= "Active" then
+			return
+		end
+		local entry = run.Zones[run.ZoneIndex]
+		local step = entry and entry.Zone.Steps[run.StepIndex]
+		if step and (step.Kind == "Travel" or step.Kind == "Defend") then
+			moveTo(player, marker(run, step.Target).Position)
+		end
+		if step and step.Kind == "Interact" then
+			local prompt = run.Map:FindFirstChild("MissionInteract", true)
+			if prompt then
+				prompt.Triggered:Fire(player)
+			end
+		end
+		local boss = run.Boss
+		if boss and not boss.Dead then
+			if not seenBoss then
+				seenBoss = true
+				if onBoss then
+					onBoss(boss)
+				end
+			end
+			if boss.Immune then
+				for _, enemy in alive(run.Id) do
+					if enemy ~= boss then
+						kill(enemy)
+					end
+				end
+			elseif boss.HealthFloor > 0 then
+				boss.Health = boss.HealthFloor
+			else
+				kill(boss)
+			end
+		else
+			for _, enemy in alive(run.Id) do
+				kill(enemy)
+			end
+		end
+		advance(1)
+	end
+end
+
+describe("Every mission plays through to the chest", function()
+	for _, spec in
+		{
+			{ Id = "STORY_02", Boss = "CONC_TIDE_MARSHAL", Power = 380 },
+			{ Id = "STORY_03", Boss = "VEIL_HOLLOW_PRIEST", Power = 410 },
+			{ Id = "NIGHTFALL", Boss = "RUST_KALDREK", Power = 450 },
+		}
+	do
+		it(spec.Id, function()
+			local player = join("Auto" .. spec.Id, spec.Power)
+			expect(ActivityService.Launch(player, spec.Id, nil, true)).toBe(true)
+			local run = ActivityService.GetRun(player)
+			local bossId
+			local blinksBefore = cues.Blink or 0
+			autoplay(player, run, function(boss)
+				bossId = boss.Def.Id
+				-- Let it use its attacks for a while before it goes down.
+				advance(20)
+			end)
+			expect(run.Status).toBe("Complete")
+			expect(bossId).toBe(spec.Boss)
+			if spec.Id == "STORY_03" then
+				expect((cues.Blink or 0) > blinksBefore).toBe(true) -- the Priest teleports
+			end
+			-- Every zone's gate that exists was opened on the way.
+			for _, gate in run.Map.Gates:GetChildren() do
+				expect(gate:GetAttribute("Open")).toBe(true)
+			end
+			local chest = run.Map:FindFirstChild("RewardChest")
+			chest:FindFirstChild("ClaimRewards", true).Triggered:Fire(player)
+			expect(completions[#completions].Info.Activity.Id).toBe(spec.Id)
+			ActivityService.Leave(player)
+		end)
+	end
 end)
 
 describe("Cleanup", function()

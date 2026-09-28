@@ -126,6 +126,12 @@ local ACTIVITY_ALIASES: { [string]: string } = {
 	story = "STORY_01",
 	firstlight = "STORY_01",
 	mission = "STORY_01",
+	relay = "STORY_02",
+	sunken = "STORY_02",
+	sunkenrelay = "STORY_02",
+	hollow = "STORY_03",
+	dark = "STORY_03",
+	hollowdark = "STORY_03",
 	nightfall = "NIGHTFALL",
 	nf = "NIGHTFALL",
 	strike = "NIGHTFALL",
@@ -290,7 +296,11 @@ local Commands: { [string]: Handler } = {
 		local key = string.lower(name or "")
 		local activityId = ACTIVITY_ALIASES[key] or string.upper(name or "")
 		if ActivityConfig.ById[activityId] == nil then
-			NetService.Notify(player, "Usage: /launch story | nightfall [adept|hero|legend] | raid", "Error")
+			NetService.Notify(
+				player,
+				"Usage: /launch firstlight | relay | hollow | nightfall [adept|hero|legend] | raid",
+				"Error"
+			)
 			return
 		end
 		local difficultyId: string? = nil
