@@ -10,6 +10,7 @@
 	  Postmaster  overflow drops (GameConfig.Inventory.PostmasterCapacity)
 	  Vault       account storage (GameConfig.Inventory.VaultCapacity)
 	  Playlist    launches strikes / the weekly hardened strike
+	  Talk        flavor NPC with a greeting only
 
 	Stock entries pick a random def from Pool (a Source tag) at the given
 	rarity each weekly reset; Price is per item.
@@ -29,7 +30,7 @@ export type VendorDef = {
 	Id: string,
 	Name: string,
 	Title: string,
-	Service: "Shop" | "Gunsmith" | "Bounties" | "Postmaster" | "Vault" | "Playlist",
+	Service: "Shop" | "Gunsmith" | "Bounties" | "Postmaster" | "Vault" | "Playlist" | "Talk",
 	Greeting: string,
 	-- Name of the NPC/anchor part in the hub map.
 	Anchor: string,
@@ -106,6 +107,14 @@ local List: { VendorDef } = {
 		Service = "Vault",
 		Greeting = "Access granted.",
 		Anchor = "Vendor_Vault",
+	},
+	{
+		Id = "MECHANIC",
+		Name = "Vex Calder",
+		Title = "Shipwright",
+		Service = "Talk",
+		Greeting = "She'll fly. Probably. Don't touch the red wires.",
+		Anchor = "Vendor_Mechanic",
 	},
 }
 

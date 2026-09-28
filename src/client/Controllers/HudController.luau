@@ -50,6 +50,7 @@ type Refs = {
 	Gui: ScreenGui,
 	Crosshair: Frame,
 	Lines: { Frame },
+	WeaponPanel: Frame,
 	HitMarker: Frame,
 	WeaponName: TextLabel,
 	WeaponElement: TextLabel,
@@ -415,6 +416,7 @@ local function build()
 		Gui = gui,
 		Crosshair = crosshair,
 		Lines = lines,
+		WeaponPanel = weapon,
 		HitMarker = hitMarker,
 		WeaponName = weaponName,
 		WeaponElement = weaponElement,
@@ -446,6 +448,69 @@ local function build()
 		DeathMessage = deathMessage,
 		Toasts = toasts,
 	}
+end
+
+-- Location name ---------------------------------------------------------------------------
+
+local locationToken = 0
+
+-- Big area name on entry ("THE BAZAAR"), fading out after a few seconds.
+function HudController.ShowLocation(title: string, subtitle: string?)
+	if refs == nil then
+		return
+	end
+	locationToken += 1
+	local token = locationToken
+	local gui = refs.Gui
+	local existing = gui:FindFirstChild("Location")
+	if existing then
+		existing:Destroy()
+	end
+	local frame = UI.Make("Frame", {
+		Name = "Location",
+		AnchorPoint = Vector2.new(0, 0),
+		Position = UDim2.new(0, 36, 0.14, 0),
+		Size = UDim2.fromOffset(520, 70),
+		BackgroundTransparency = 1,
+	}, gui) :: Frame
+	local titleLabel = UI.Label({
+		Size = UDim2.new(1, 0, 0, 40),
+		Font = Theme.Fonts.Title,
+		TextSize = 34,
+		Text = string.upper(title),
+		TextStrokeTransparency = 0.5,
+		TextTransparency = 1,
+	}, frame)
+	local line = UI.Make("Frame", {
+		Position = UDim2.fromOffset(0, 42),
+		Size = UDim2.fromOffset(0, 2),
+		BackgroundColor3 = Theme.Colors.Accent,
+		BorderSizePixel = 0,
+	}, frame) :: Frame
+	local subtitleLabel = UI.Label({
+		Position = UDim2.fromOffset(0, 46),
+		Size = UDim2.new(1, 0, 0, 20),
+		TextSize = 16,
+		TextColor3 = Theme.Colors.TextDim,
+		Text = subtitle or "",
+		TextStrokeTransparency = 0.7,
+		TextTransparency = 1,
+	}, frame)
+	local fadeIn = TweenInfo.new(0.6)
+	TweenService:Create(titleLabel, fadeIn, { TextTransparency = 0 }):Play()
+	TweenService:Create(subtitleLabel, fadeIn, { TextTransparency = 0 }):Play()
+	TweenService:Create(line, TweenInfo.new(0.8), { Size = UDim2.fromOffset(260, 2) }):Play()
+	task.delay(3.5, function()
+		if token ~= locationToken or frame.Parent == nil then
+			return
+		end
+		local fadeOut = TweenInfo.new(1)
+		TweenService:Create(titleLabel, fadeOut, { TextTransparency = 1, TextStrokeTransparency = 1 }):Play()
+		TweenService:Create(subtitleLabel, fadeOut, { TextTransparency = 1, TextStrokeTransparency = 1 }):Play()
+		TweenService:Create(line, fadeOut, { BackgroundTransparency = 1 }):Play()
+		task.wait(1.1)
+		frame:Destroy()
+	end)
 end
 
 -- Toasts ----------------------------------------------------------------------------------
@@ -511,11 +576,12 @@ local function updateCrosshair()
 	for index, line in refs.Lines do
 		line.Position = UDim2.fromOffset(offsets[index].X, offsets[index].Y)
 	end
-	refs.Crosshair.Visible = not UIState.InputBlocked()
+	refs.Crosshair.Visible = not UIState.InputBlocked() and WeaponController.IsDrawn()
 	refs.HitMarker.Visible = os.clock() < hitMarkerUntil
 end
 
 local function updateWeapon()
+	refs.WeaponPanel.Visible = WeaponController.IsDrawn()
 	local slot = WeaponController.GetActiveSlot()
 	local slots = WeaponController.GetSlots()
 	local info = slots[slot]

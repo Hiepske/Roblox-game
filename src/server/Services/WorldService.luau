@@ -3,9 +3,11 @@
 	WorldService
 	Builds the world when the server starts:
 	  * applies the hub lighting preset
-	  * builds the hub into Workspace.Hub (or uses a hand-built Workspace.Hub)
+	  * builds the hub (MapBuilders/HubBuilder) into Workspace.Hub, or uses a
+	    hand-built Workspace.Hub, and fills in the hub's terrain
 	  * builds each activity map into ServerStorage.Activities (skipping any
-	    map a designer already placed there by hand)
+	    map a designer already placed there by hand); their terrain is
+	    applied per instance by ActivityService
 	  * creates the runtime folders: Workspace.Instances, .Enemies, .Pickups
 	  * wires the Director terminal and vendor prompts in the hub
 ]]
@@ -21,13 +23,18 @@ local LightingPresets = require(Shared.World.LightingPresets)
 local VendorConfig = require(Shared.Config.VendorConfig)
 local WorldConfig = require(Shared.Config.WorldConfig)
 
-local Maps = script.Parent.Parent.Maps
-local HubMap = require(Maps.Hub)
-local MapBuilders: { [string]: { Build: () -> Model } } = {
-	FirstLight = require(Maps.FirstLight),
-	HollowSpire = require(Maps.HollowSpire),
-	VaultOfEchoes = require(Maps.VaultOfEchoes),
-}
+local MapBuilderFolder = script.Parent.Parent.MapBuilders
+local MapKit = require(MapBuilderFolder.MapKit)
+local HubBuilder = require(MapBuilderFolder.HubBuilder)
+
+-- Map name -> builder module (MapBuilders/<Name>Builder).
+local function builderFor(name: string): { Build: () -> Model }?
+	local module = MapBuilderFolder:FindFirstChild(`{name}Builder`)
+	if module and module:IsA("ModuleScript") then
+		return require(module) :: any
+	end
+	return nil
+end
 
 local NetService = require(script.Parent.NetService)
 
@@ -69,14 +76,14 @@ function WorldService.Init()
 	if existingHub and existingHub:IsA("Model") then
 		hub = existingHub
 	else
-		hub = HubMap.Build()
+		hub = HubBuilder.Build()
 		hub.Parent = Workspace
 	end
 
 	activitiesFolder = folder(ServerStorage, "Activities")
 	for _, name in WorldConfig.Maps do
 		if activitiesFolder:FindFirstChild(name) == nil then
-			local builder = MapBuilders[name]
+			local builder = builderFor(name)
 			if builder then
 				local model = builder.Build()
 				model.Parent = activitiesFolder
@@ -91,7 +98,17 @@ function WorldService.Init()
 	end
 end
 
+-- Vendors whose prompt opens a screen instead of a greeting.
+local VENDOR_MENUS: { [string]: string } = {
+	POSTMASTER = "Postmaster",
+	VAULT = "Vault",
+	GUNSMITH = "Infuse",
+}
+
 function WorldService.Start()
+	-- The hub's city, river and mountains (can take a few seconds).
+	task.spawn(MapKit.ApplyTerrain, hub)
+
 	-- Director terminal: proximity prompt and clicking the console/screen/orb.
 	for _, descendant in hub:GetDescendants() do
 		if descendant.Name == "OpenDirector" then
@@ -108,12 +125,14 @@ function WorldService.Start()
 			local vendorId = descendant:GetAttribute("VendorId")
 			descendant.Triggered:Connect(function(player: Player)
 				local vendor = if type(vendorId) == "string" then VendorConfig.ById[vendorId] else nil
-				if vendor then
-					NetService.Notify(
-						player,
-						`{vendor.Name}: "{vendor.Greeting}" (vendor screens arrive in a later update)`
-					)
+				if vendor == nil then
+					return
 				end
+				local menu = VENDOR_MENUS[vendor.Id]
+				if menu then
+					NetService.FireClient(player, "OpenMenu", "Inventory", menu)
+				end
+				NetService.Notify(player, `{vendor.Name}: "{vendor.Greeting}"`)
 			end)
 		end
 	end
@@ -122,7 +141,7 @@ end
 -- Where players stand in the hub. Spread a little so a group doesn't stack.
 function WorldService.GetHubSpawn(): CFrame
 	local markers = hub:FindFirstChild("Markers")
-	local marker = if markers then markers:FindFirstChild("HubSpawn") else nil
+	local marker = if markers then markers:FindFirstChild("HubSpawn", true) else nil
 	local base = if marker and marker:IsA("BasePart")
 		then marker.CFrame
 		else CFrame.new(0, WorldConfig.HubSpawnHeight, 12)
@@ -133,8 +152,12 @@ end
 
 function WorldService.GetHubMarker(name: string): BasePart?
 	local markers = hub:FindFirstChild("Markers")
-	local marker = if markers then markers:FindFirstChild(name) else nil
+	local marker = if markers then markers:FindFirstChild(name, true) else nil
 	return if marker and marker:IsA("BasePart") then marker else nil
+end
+
+function WorldService.GetHub(): Model
+	return hub
 end
 
 function WorldService.GetMapTemplate(name: string): Model?

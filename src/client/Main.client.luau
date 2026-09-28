@@ -16,6 +16,8 @@ local order: { Controller } = {
 	require(Controllers:WaitForChild("EffectsController")) :: any,
 	require(Controllers:WaitForChild("WeaponController")) :: any,
 	require(Controllers:WaitForChild("HudController")) :: any,
+	require(Controllers:WaitForChild("WorldMotionController")) :: any,
+	require(Controllers:WaitForChild("AreaController")) :: any,
 	require(Controllers:WaitForChild("DirectorController")) :: any,
 	require(Controllers:WaitForChild("CharacterScreenController")) :: any,
 	require(Controllers:WaitForChild("LootController")) :: any,

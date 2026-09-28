@@ -248,7 +248,7 @@ VirtualGame.Preload(Server.Services.NetService, {
 })
 local templates = {}
 for _, name in { "FirstLight", "HollowSpire", "VaultOfEchoes" } do
-	templates[name] = require(Server.Maps[name]).Build()
+	templates[name] = require(Server.MapBuilders[name .. "Builder"]).Build()
 end
 local instancesFolder = Proxy.Instance.new("Folder")
 VirtualGame.Preload(Server.Services.WorldService, {

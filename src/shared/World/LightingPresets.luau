@@ -10,7 +10,9 @@
 ]]
 
 local Lighting = game:GetService("Lighting")
+local Workspace = game:GetService("Workspace")
 
+local AssetIds = require(script.Parent.Parent.Config.AssetIds)
 local WorldConfig = require(script.Parent.Parent.Config.WorldConfig)
 
 local LightingPresets = {}
@@ -108,6 +110,40 @@ function LightingPresets.Apply(name: string)
 	local skybox = sky()
 	skybox.StarCount = preset.StarCount
 	skybox.CelestialBodiesShown = true
+	local faces = if preset.Sky then (AssetIds.Images :: any)[preset.Sky] else nil
+	if type(faces) == "table" and faces.Bk and faces.Bk ~= 0 then
+		skybox.SkyboxBk = AssetIds.Get(faces.Bk)
+		skybox.SkyboxDn = AssetIds.Get(faces.Dn)
+		skybox.SkyboxFt = AssetIds.Get(faces.Ft)
+		skybox.SkyboxLf = AssetIds.Get(faces.Lf)
+		skybox.SkyboxRt = AssetIds.Get(faces.Rt)
+		skybox.SkyboxUp = AssetIds.Get(faces.Up)
+	end
+
+	local terrain = Workspace:FindFirstChildOfClass("Terrain")
+	if terrain then
+		local clouds = terrain:FindFirstChildOfClass("Clouds")
+		if preset.Clouds then
+			if clouds == nil then
+				local created = Instance.new("Clouds")
+				created.Parent = terrain
+				clouds = created
+			end
+			local cloudLayer = clouds :: Clouds
+			cloudLayer.Enabled = true
+			cloudLayer.Cover = preset.Clouds.Cover
+			cloudLayer.Density = preset.Clouds.Density
+			cloudLayer.Color = preset.Clouds.Color
+		elseif clouds then
+			clouds.Enabled = false
+		end
+	end
+end
+
+-- True when the preset gives players a flashlight.
+function LightingPresets.HasFlashlight(name: string): boolean
+	local preset = WorldConfig.Lighting[name]
+	return preset ~= nil and preset.Flashlight == true
 end
 
 return LightingPresets

@@ -84,6 +84,8 @@ local Definitions: { [string]: RemoteDef } = {
 	LeaveActivity = { Kind = "Event", Direction = "ToServer", RateLimit = { Rate = 1, Burst = 2 } },
 	-- Server -> player: open the Director (terminal clicked)
 	OpenDirector = { Kind = "Event", Direction = "ToClient" },
+	-- Server -> player: open a screen, (menu, tab?) e.g. ("Inventory", "Vault")
+	OpenMenu = { Kind = "Event", Direction = "ToClient" },
 
 	-- Loot and inventory -------------------------------------------------------------
 	-- Server -> player: (items, context) for toasts and the end-of-activity screen

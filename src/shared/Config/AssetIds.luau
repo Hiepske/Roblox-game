@@ -56,8 +56,15 @@ local AssetIds = {
 		},
 		Music = {
 			Hub = 0,
+			Explore = 0,
 			Combat = 0,
 			Boss = 0,
+		},
+		-- Looping hub ambience.
+		Ambient = {
+			HubWind = 0,
+			HubCrowd = 0,
+			HubShips = 0,
 		},
 	},
 	Images = {
@@ -68,6 +75,8 @@ local AssetIds = {
 		Rarity = { Rare = 0, Epic = 0, Legendary = 0, Exotic = 0 },
 		PowerIcon = 0,
 		Crosshair = 0,
+		-- Skybox faces for the hub's bright sky (0 = Roblox's default sky).
+		HubSky = { Bk = 0, Dn = 0, Ft = 0, Lf = 0, Rt = 0, Up = 0 },
 	},
 	-- Roblox's own default character animations (public, owned by Roblox, not
 	-- placeholders). Used for enemy walk/idle and the weapon hold pose.

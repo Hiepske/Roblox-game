@@ -26,33 +26,41 @@ export type LightingPreset = {
 	ColorCorrection: { Brightness: number, Contrast: number, Saturation: number, TintColor: Color3 },
 	SunRays: { Intensity: number, Spread: number },
 	StarCount: number,
+	-- Terrain clouds (nil = none).
+	Clouds: { Cover: number, Density: number, Color: Color3 }?,
+	-- Key into AssetIds.Images for skybox faces (placeholder ids keep the default sky).
+	Sky: string?,
+	-- Players carry a flashlight (dark caves).
+	Flashlight: boolean?,
 }
 
 local Lighting: { [string]: LightingPreset } = {
-	-- Sci-fi evening over Haven Spire.
+	-- Sunny afternoon on top of the Spire: light haze, soft bloom, warm grade.
 	Hub = {
-		ClockTime = 18.3,
-		Brightness = 2.2,
-		Ambient = Color3.fromRGB(45, 38, 70),
-		OutdoorAmbient = Color3.fromRGB(120, 95, 150),
-		ExposureCompensation = 0.1,
+		ClockTime = 15,
+		Brightness = 3,
+		Ambient = Color3.fromRGB(120, 122, 130),
+		OutdoorAmbient = Color3.fromRGB(165, 165, 170),
+		ExposureCompensation = 0,
 		Atmosphere = {
-			Density = 0.32,
-			Offset = 0.12,
-			Color = Color3.fromRGB(235, 165, 190),
-			Decay = Color3.fromRGB(105, 75, 160),
-			Glare = 0.6,
-			Haze = 1.6,
+			Density = 0.3,
+			Offset = 0.08,
+			Color = Color3.fromRGB(205, 220, 235),
+			Decay = Color3.fromRGB(150, 170, 200),
+			Glare = 0.25,
+			Haze = 1.4,
 		},
-		Bloom = { Intensity = 0.9, Size = 28, Threshold = 1.1 },
+		Bloom = { Intensity = 0.35, Size = 24, Threshold = 1.6 },
 		ColorCorrection = {
 			Brightness = 0.02,
-			Contrast = 0.12,
-			Saturation = 0.1,
-			TintColor = Color3.fromRGB(255, 242, 255),
+			Contrast = 0.06,
+			Saturation = 0.08,
+			TintColor = Color3.fromRGB(255, 248, 236),
 		},
-		SunRays = { Intensity = 0.08, Spread = 0.6 },
-		StarCount = 3000,
+		SunRays = { Intensity = 0.1, Spread = 0.5 },
+		StarCount = 0,
+		Clouds = { Cover = 0.55, Density = 0.45, Color = Color3.fromRGB(255, 255, 255) },
+		Sky = "HubSky",
 	},
 	-- Dusty afternoon on Veyra.
 	FirstLight = {
@@ -131,7 +139,33 @@ local Lighting: { [string]: LightingPreset } = {
 	},
 }
 
+export type ChestDef = {
+	-- "Daily" or "Weekly": how often it can be opened.
+	Reset: "Daily" | "Weekly",
+	Currencies: { [string]: number },
+	-- Chance of a gear drop (World power rules).
+	DropChance: number,
+	Message: string,
+}
+
+-- Hidden caches in the hub (Props.Chest with a ChestId).
+local Chests: { [string]: ChestDef } = {
+	HUB_ROOFTOP = {
+		Reset = "Daily",
+		Currencies = { Quanta = 300, Alloy = 2 },
+		DropChance = 0.25,
+		Message = "Rooftop cache: someone stashed supplies up here.",
+	},
+	HUB_SECRET = {
+		Reset = "Weekly",
+		Currencies = { Quanta = 800, Alloy = 5, Fluxite = 1 },
+		DropChance = 1,
+		Message = "A hidden archive. The terminal flickers: KEEP THE LIGHT.",
+	},
+}
+
 return TableUtil.DeepFreeze({
+	Chests = Chests,
 	-- Map builders that exist in src/server/Maps (ActivityConfig.Map must be one).
 	Maps = { "FirstLight", "HollowSpire", "VaultOfEchoes" },
 	Lighting = Lighting,

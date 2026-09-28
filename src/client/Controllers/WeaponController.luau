@@ -147,6 +147,9 @@ end
 -- Actions -------------------------------------------------------------------------
 
 local function setAiming(isAiming: boolean)
+	if isAiming and not WeaponController.IsDrawn() then
+		return
+	end
 	if aiming == isAiming then
 		return
 	end
@@ -232,11 +235,16 @@ local function spreadDirection(direction: Vector3, degrees: number): Vector3
 	return (CFrame.lookAt(Vector3.zero, direction) * CFrame.Angles(0, 0, roll) * CFrame.Angles(angle, 0, 0)).LookVector
 end
 
+-- Weapons are holstered in the hub outside the firing range (server attribute).
+function WeaponController.IsDrawn(): boolean
+	return player:GetAttribute("WeaponsDrawn") == true
+end
+
 local function fire()
 	local info = slots[active]
 	local stats = WeaponController.GetStats(active)
 	local character = player.Character
-	if info == nil or stats == nil or character == nil then
+	if info == nil or stats == nil or character == nil or not WeaponController.IsDrawn() then
 		return
 	end
 	local now = os.clock()
@@ -421,6 +429,13 @@ function WeaponController.Start()
 	UIState.MenuChanged:Connect(function()
 		fireHeld = false
 		setAiming(false)
+	end)
+
+	player:GetAttributeChangedSignal("WeaponsDrawn"):Connect(function()
+		if not WeaponController.IsDrawn() then
+			fireHeld = false
+			setAiming(false)
+		end
 	end)
 
 	player.CharacterAdded:Connect(function(character: Model)

@@ -8,7 +8,8 @@ local Shared = game.ReplicatedStorage.Shared
 local ActivityConfig = require(Shared.Config.ActivityConfig)
 local ActivityRules = require(Shared.Activities.ActivityRules)
 local VendorConfig = require(Shared.Config.VendorConfig)
-local Maps = game.ServerScriptService.Maps
+local Maps = game.ServerScriptService.MapBuilders
+local MapKit = require(Maps.MapKit)
 
 local function find(model, folderName, name)
 	local folder = model:FindFirstChild(folderName)
@@ -25,12 +26,14 @@ local function findDeep(model, name)
 end
 
 describe("Hub map", function()
-	local hub = require(Maps.Hub).Build()
+	local hub = require(Maps.HubBuilder).Build()
 
 	it("has a spawn, three range dummies and the Director terminal", function()
-		expect(find(hub, "Markers", "HubSpawn") ~= nil).toBe(true)
+		local markers = hub:FindFirstChild("Markers")
+		expect(findDeep(markers, "HubSpawn") ~= nil).toBe(true)
+		expect(findDeep(markers, "RangeZone") ~= nil).toBe(true)
 		for index = 1, 3 do
-			expect(find(hub, "Markers", "Dummy_" .. index) ~= nil).toBe(true)
+			expect(findDeep(markers, "Dummy_" .. index) ~= nil).toBe(true)
 		end
 		local terminal = findDeep(hub, "DirectorTerminal")
 		expect(terminal ~= nil).toBe(true)
@@ -42,12 +45,54 @@ describe("Hub map", function()
 			expect(findDeep(hub, "Vendor_" .. vendor.Id) ~= nil).toBe(true)
 		end
 	end)
+
+	it("has named areas, lifts, hidden caches and a fall limit", function()
+		local areas = findDeep(hub:FindFirstChild("Markers"), "Areas")
+		local names = {}
+		for _, area in areas:GetChildren() do
+			expect(type(area:GetAttribute("DisplayName"))).toBe("string")
+			names[area.Name] = true
+		end
+		for _, name in { "Area_Courtyard", "Area_Bazaar", "Area_Hangar", "Area_CommandDeck", "Area_Range" } do
+			expect(names[name]).toBe(true)
+		end
+		local lifts = 0
+		for _, descendant in hub:GetDescendants() do
+			if descendant.Name == "Elevator" and descendant:HasTag("LL_Mover") then
+				lifts += 1
+			end
+		end
+		expect(lifts).toBe(2)
+		expect(findDeep(hub, "Chest_HUB_ROOFTOP") ~= nil).toBe(true)
+		expect(findDeep(hub, "Chest_HUB_SECRET") ~= nil).toBe(true)
+		expect(type(hub:GetAttribute("KillY"))).toBe("number")
+	end)
+
+	it("stays within the part budget and has terrain recipes", function()
+		local parts = MapKit.CountParts(hub)
+		print(`Hub parts: {parts}`)
+		expect(parts < 15000).toBe(true)
+		local recipes = hub:FindFirstChild("Terrain"):GetChildren()
+		expect(#recipes > 10).toBe(true)
+		for _, recipe in recipes do
+			expect(recipe:GetAttribute("TerrainShape") ~= nil).toBe(true)
+			expect(recipe:GetAttribute("TerrainMaterial") ~= nil).toBe(true)
+		end
+	end)
+
+	it("is the same every time it is built", function()
+		local again = require(Maps.HubBuilder).Build()
+		expect(MapKit.CountParts(again)).toBe(MapKit.CountParts(hub))
+		local a = findDeep(hub, "Chest_HUB_ROOFTOP").PrimaryPart.CFrame
+		local b = findDeep(again, "Chest_HUB_ROOFTOP").PrimaryPart.CFrame
+		expect((a.Position - b.Position).Magnitude < 1e-6).toBe(true)
+	end)
 end)
 
 describe("Activity maps", function()
 	for _, activity in ActivityRules.Playable() do
 		it(activity.Name .. " contains every marker its objectives use", function()
-			local model = require(Maps[activity.Map]).Build()
+			local model = require(Maps[activity.Map .. "Builder"]).Build()
 			expect(model.Name).toBe(activity.Map)
 			expect(find(model, "Markers", "PlayerStart") ~= nil).toBe(true)
 

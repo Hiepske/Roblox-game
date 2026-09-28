@@ -137,6 +137,11 @@ local function rebuildSlots(player: Player)
 	end
 end
 
+-- Weapons are holstered in the hub outside the firing range (HubService).
+local function isDrawn(player: Player): boolean
+	return player:GetAttribute("WeaponsDrawn") == true
+end
+
 local function equipModel(player: Player)
 	local loadout = getLoadout(player)
 	if loadout.Model then
@@ -145,7 +150,7 @@ local function equipModel(player: Player)
 	end
 	local character = CharacterService.GetCharacter(player)
 	local state = loadout.Slots[loadout.Active]
-	if character == nil or state == nil then
+	if character == nil or state == nil or not isDrawn(player) then
 		return
 	end
 	local model = WeaponModels.Build(state.Stats.DefId)
@@ -217,6 +222,9 @@ local function onFire(player: Player, slot: string, aimPoint: Vector3, _shotId: 
 	end
 	local stats = state.Stats
 	local now = os.clock()
+	if not isDrawn(player) then
+		return
+	end
 	if now < loadout.SwapReadyAt - 0.1 or now < state.ReloadingUntil - 0.1 then
 		return
 	end
@@ -348,6 +356,15 @@ function WeaponService.Start()
 	Players.PlayerRemoving:Connect(function(player: Player)
 		loadouts[player] = nil
 	end)
+	local function watch(player: Player)
+		player:GetAttributeChangedSignal("WeaponsDrawn"):Connect(function()
+			equipModel(player)
+		end)
+	end
+	Players.PlayerAdded:Connect(watch)
+	for _, player in Players:GetPlayers() do
+		watch(player)
+	end
 end
 
 return WeaponService
