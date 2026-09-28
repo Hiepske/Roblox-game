@@ -23,6 +23,7 @@ local Shared = ReplicatedStorage.Shared
 local ActivityConfig = require(Shared.Config.ActivityConfig)
 local CombatConfig = require(Shared.Config.CombatConfig)
 local LootConfig = require(Shared.Config.LootConfig)
+local ItemRoller = require(Shared.Items.ItemRoller)
 local LootRoller = require(Shared.Items.LootRoller)
 local MilestoneConfig = require(Shared.Config.MilestoneConfig)
 local PowerMath = require(Shared.Power.PowerMath)
@@ -48,7 +49,13 @@ type AmmoBox = {
 	Part: BasePart,
 	InstanceId: string?,
 	ExpiresAt: number,
+	AmmoType: string,
 	Fraction: number,
+}
+
+local AMMO_LOOK: { [string]: { Color: Color3, Text: Color3, Label: string } } = {
+	Heavy = { Color = Color3.fromRGB(170, 80, 255), Text = Color3.fromRGB(215, 170, 255), Label = "HEAVY AMMO" },
+	Special = { Color = Color3.fromRGB(70, 220, 110), Text = Color3.fromRGB(170, 255, 190), Label = "SPECIAL AMMO" },
 }
 
 local LootService = {}
@@ -150,6 +157,44 @@ function LootService.ClaimMilestone(player: Player, milestoneId: string, sourceI
 	return true
 end
 
+-- A weapon from `sourceId`'s pool the player doesn't own yet (any if they own
+-- them all), at World power.
+function LootService.NewWeapon(player: Player, sourceId: string): ItemInstance?
+	local data = DataService.GetData(player)
+	if data == nil then
+		return nil
+	end
+	local owned: { [string]: boolean } = {}
+	for _, item in data.Items do
+		owned[item.DefId] = true
+	end
+	local pool = LootRoller.PoolWeapons(sourceId)
+	local fresh: { string } = {}
+	for _, defId in pool do
+		if not owned[defId] then
+			table.insert(fresh, defId)
+		end
+	end
+	local choices = if #fresh > 0 then fresh else pool
+	if #choices == 0 then
+		return nil
+	end
+	local defId = choices[rng:NextInteger(1, #choices)]
+	local highest = PowerMath.HighestPossible(data.Items)
+	local item = ItemRoller.Roll(
+		defId,
+		PowerMath.RollDropPower(highest, "World", nil, rng),
+		rng,
+		DataService.NewUid(),
+		os.time(),
+		"Random"
+	)
+	if item == nil or not DataService.GiveItem(player, item) then
+		return nil
+	end
+	return item
+end
+
 export type CompletionInfo = {
 	Activity: ActivityConfig.ActivityDef,
 	Difficulty: ActivityConfig.DifficultyDef?,
@@ -202,6 +247,10 @@ function LootService.AwardCompletion(player: Player, info: CompletionInfo): { Aw
 		award(awards, LootService.Roll(player, source, "World", nil, options), "Drop")
 	end
 
+	if rewards and rewards.NewWeapon then
+		award(awards, LootService.NewWeapon(player, source), "NewWeapon")
+	end
+
 	if rewards and rewards.ExclusiveChance and rng:NextNumber() < rewards.ExclusiveChance then
 		local kind: Types.RewardKind = if claimedAny then "Pinnacle" else "World"
 		award(
@@ -217,11 +266,12 @@ end
 
 -- Enemy drops ---------------------------------------------------------------------------
 
-local function makeBox(position: Vector3, instanceId: string?, fraction: number)
+local function makeBox(position: Vector3, instanceId: string?, ammoType: string, fraction: number)
+	local look = AMMO_LOOK[ammoType] or AMMO_LOOK.Heavy
 	local part = Instance.new("Part")
-	part.Name = "HeavyAmmo"
+	part.Name = `{ammoType}Ammo`
 	part.Size = Vector3.new(1.4, 1.4, 1.4)
-	part.Color = Color3.fromRGB(170, 80, 255)
+	part.Color = look.Color
 	part.Material = Enum.Material.Neon
 	part.Anchored = true
 	part.CanCollide = false
@@ -241,10 +291,10 @@ local function makeBox(position: Vector3, instanceId: string?, fraction: number)
 	local label = Instance.new("TextLabel")
 	label.Size = UDim2.fromScale(1, 1)
 	label.BackgroundTransparency = 1
-	label.Text = "HEAVY AMMO"
+	label.Text = look.Label
 	label.Font = Enum.Font.GothamBold
 	label.TextScaled = true
-	label.TextColor3 = Color3.fromRGB(215, 170, 255)
+	label.TextColor3 = look.Text
 	label.TextStrokeTransparency = 0.4
 	label.Parent = gui
 	gui.Parent = part
@@ -253,13 +303,19 @@ local function makeBox(position: Vector3, instanceId: string?, fraction: number)
 		Part = part :: BasePart,
 		InstanceId = instanceId,
 		ExpiresAt = os.clock() + CombatConfig.Ammo.BoxLifetime,
+		AmmoType = ammoType,
 		Fraction = fraction,
 	})
 end
 
--- Drops a heavy ammo box at `position` (used by enemy deaths and the dev tools).
+-- Drops an ammo box ("Special" green or "Heavy" purple) at `position`.
+function LootService.DropAmmo(position: Vector3, instanceId: string?, ammoType: string)
+	local fraction = (LootConfig.AmmoBrickFraction :: any)[ammoType] or 0.25
+	makeBox(position, instanceId, ammoType, fraction)
+end
+
 function LootService.DropHeavyAmmo(position: Vector3, instanceId: string?)
-	makeBox(position, instanceId, LootConfig.AmmoBrickFraction.Heavy)
+	LootService.DropAmmo(position, instanceId, "Heavy")
 end
 
 local function onEnemyKilled(enemy: EnemyService.Enemy, _killer: Player?)
@@ -276,11 +332,12 @@ local function onEnemyKilled(enemy: EnemyService.Enemy, _killer: Player?)
 
 	local tier = enemy.Def.Tier
 	local heavyChance = ((LootConfig.AmmoDrops.Heavy :: any)[tier] or 0) * ammoMultiplier
-	-- Primary-ammo loadouts only need heavy; special bricks count as heavy
-	-- too so launchers stay fed in the vertical slice.
-	local specialChance = ((LootConfig.AmmoDrops.Special :: any)[tier] or 0) * ammoMultiplier * 0.5
-	if rng:NextNumber() < heavyChance + specialChance then
-		makeBox(enemy.Root.Position, instanceId, LootConfig.AmmoBrickFraction.Heavy)
+	local specialChance = ((LootConfig.AmmoDrops.Special :: any)[tier] or 0) * ammoMultiplier
+	local roll = rng:NextNumber()
+	if roll < heavyChance then
+		LootService.DropAmmo(enemy.Root.Position, instanceId, "Heavy")
+	elseif roll < heavyChance + specialChance then
+		LootService.DropAmmo(enemy.Root.Position, instanceId, "Special")
 	end
 
 	-- Bosses drop their loot at the end-of-activity screen instead.
@@ -316,9 +373,9 @@ local function updateBoxes()
 						root
 						and root:IsA("BasePart")
 						and (root.Position - box.Part.Position).Magnitude <= radius
-						and WeaponService.AddHeavyAmmo(player, box.Fraction) > 0
+						and WeaponService.AddAmmo(player, box.AmmoType, box.Fraction) > 0
 					then
-						NetService.Notify(player, "Heavy ammo", "Info")
+						NetService.Notify(player, `{box.AmmoType} ammo`, "Info")
 						taken = true
 						break
 					end

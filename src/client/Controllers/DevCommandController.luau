@@ -8,6 +8,7 @@
 
 	  /setpower <n>          set every equipped item to power n
 	  /give <weaponId|name>  roll a weapon/armor at your power and equip it
+	  /giveall               one of every weapon (overflow in the vault)
 	  /launch <activity> [difficulty]
 	                         story | nightfall [adept|hero|legend] | raid
 	                         (ignores unlocks)
@@ -70,6 +71,7 @@ local commands: { Command } = {
 			send("Launch", if difficulty then `{activity}:{difficulty}` else activity)
 		end,
 	},
+	{ Alias = "/giveall", Server = "GiveAll", Usage = "/giveall" },
 	{ Alias = "/god", Server = "God", Usage = "/god" },
 	{ Alias = "/resetweek", Server = "ExpireResets", Usage = "/resetweek" },
 	{ Alias = "/wipe", Server = "ResetProfile", Usage = "/wipe" },

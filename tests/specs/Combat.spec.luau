@@ -124,3 +124,71 @@ describe("DamageMath", function()
 		expect(DamageMath.ApplyToTarget(1000, 0, 50, "Flare", nil, false).HealthDamage).toBe(50)
 	end)
 end)
+
+describe("Weapon types", function()
+	local function stats(defId)
+		return WeaponStats.Compute(ItemRoller.Roll(defId, 350, rng, "uid-" .. defId, 0, "Base"))
+	end
+
+	it("gives every fire mode what it needs", function()
+		expect(stats("W_DOORKICKER").Pellets).toBe(12)
+		expect(stats("W_CADENCE_OF_IRON").BurstCount).toBe(3)
+		local fusion = stats("W_LANTERN_COIL")
+		expect(fusion.ChargeTime > 0).toBe(true)
+		expect(fusion.Pellets > 1).toBe(true)
+		expect(stats("W_MOTH_AND_EMBER").Projectile.Gravity > 0).toBe(true)
+		expect(stats("W_SCRAPFIRE_TUBE").Projectile.Gravity).toBeNil()
+		expect(stats("W_GROUNDSKEEPER").FireMode).toBe("Melee")
+		expect(stats("W_SLOW_DAWN").AdsFov < 25).toBe(true)
+	end)
+
+	it("has at least 25 weapons covering every required type and tier", function()
+		local types, rarities, slots = {}, {}, {}
+		for _, weapon in WeaponConfig.List do
+			types[weapon.Type] = true
+			rarities[weapon.Rarity] = true
+			slots[weapon.Slot] = true
+		end
+		expect(#WeaponConfig.List >= 25).toBe(true)
+		for _, required in
+			{
+				"AutoRifle",
+				"PulseRifle",
+				"ScoutRifle",
+				"HandCannon",
+				"SMG",
+				"Shotgun",
+				"SniperRifle",
+				"GrenadeLauncher",
+				"RocketLauncher",
+				"MachineGun",
+				"Sword",
+			}
+		do
+			expect(types[required]).toBe(true)
+		end
+		for _, rarity in { "Rare", "Epic", "Legendary", "Exotic" } do
+			expect(rarities[rarity]).toBe(true)
+		end
+		for _, slot in { "Kinetic", "Energy", "Heavy" } do
+			expect(slots[slot]).toBe(true)
+		end
+	end)
+
+	it("gives the exotics their unique mechanics", function()
+		expect(stats("W_WIDOWS_TALLY").Exotic.Kind).toBe("Explosion")
+		expect(stats("W_STARFALL_CHORUS").Exotic.Kind).toBe("ClusterBomblets")
+		expect(stats("W_PERPETUAL_ENGINE").Exotic.Kind).toBe("RpmRampAndChain")
+		expect(stats("W_FRONTIER_STANDARD").Exotic).toBeNil()
+	end)
+
+	it("has a raid-exclusive set that drops nowhere else", function()
+		local exclusive = 0
+		for _, weapon in WeaponConfig.List do
+			if #weapon.Sources == 1 and weapon.Sources[1] == "Raid" then
+				exclusive += 1
+			end
+		end
+		expect(exclusive >= 4).toBe(true)
+	end)
+end)

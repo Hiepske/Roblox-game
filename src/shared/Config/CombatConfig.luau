@@ -53,6 +53,10 @@ local CombatConfig = {
 		AimPointSlack = 60,
 		-- Rockets in reserve when a character spawns or enters an activity.
 		HeavyStartingReserve = 2,
+		-- Special ammo (shotguns, snipers, fusion rifles) starts at this many magazines.
+		SpecialStartingMagazines = 2,
+		-- Melee weapons hit enemies within this cone (degrees either side).
+		MeleeArc = 60,
 		-- Weapons never damage their owner; explosions fall off to this at the edge.
 		SplashEdgeMultiplier = 0.5,
 	},

@@ -51,6 +51,8 @@ type Refs = {
 	Crosshair: Frame,
 	Lines: { Frame },
 	WeaponPanel: Frame,
+	Scope: Frame,
+	Charge: Frame,
 	HitMarker: Frame,
 	WeaponName: TextLabel,
 	WeaponElement: TextLabel,
@@ -168,6 +170,44 @@ local function build()
 			BorderSizePixel = 0,
 		}, hitMarker)
 	end
+
+	-- Sniper scope: a clear circle in a black vignette (a huge stroke on a
+	-- round frame), with fine cross lines.
+	local scope = UI.Make("Frame", {
+		Name = "Scope",
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		Position = UDim2.fromScale(0.5, 0.5),
+		Size = UDim2.fromScale(0.62, 0.62),
+		BackgroundTransparency = 1,
+		Visible = false,
+	}, gui) :: Frame
+	UI.Make("UIAspectRatioConstraint", { AspectRatio = 1, DominantAxis = Enum.DominantAxis.Height }, scope)
+	UI.Corner(scope, 2000)
+	UI.Make("UIStroke", { Thickness = 2500, Color = Color3.new(0, 0, 0), Transparency = 0.05 }, scope)
+	for _, vertical in { true, false } do
+		UI.Make("Frame", {
+			AnchorPoint = Vector2.new(0.5, 0.5),
+			Position = UDim2.fromScale(0.5, 0.5),
+			Size = if vertical then UDim2.new(0, 1, 1, 0) else UDim2.new(1, 0, 0, 1),
+			BackgroundColor3 = Color3.new(0, 0, 0),
+			BorderSizePixel = 0,
+		}, scope)
+	end
+	local charge = UI.Make("Frame", {
+		Name = "Charge",
+		AnchorPoint = Vector2.new(0.5, 0),
+		Position = UDim2.new(0.5, 0, 0.5, 26),
+		Size = UDim2.fromOffset(70, 5),
+		BackgroundColor3 = Color3.fromRGB(20, 24, 32),
+		BorderSizePixel = 0,
+		Visible = false,
+	}, gui) :: Frame
+	UI.Make("Frame", {
+		Name = "Fill",
+		Size = UDim2.fromScale(0, 1),
+		BackgroundColor3 = Theme.Colors.Accent,
+		BorderSizePixel = 0,
+	}, charge)
 
 	-- Weapon panel (bottom right).
 	local weapon = UI.Make("Frame", {
@@ -417,6 +457,8 @@ local function build()
 		Crosshair = crosshair,
 		Lines = lines,
 		WeaponPanel = weapon,
+		Scope = scope,
+		Charge = charge,
 		HitMarker = hitMarker,
 		WeaponName = weaponName,
 		WeaponElement = weaponElement,
@@ -577,6 +619,16 @@ local function updateCrosshair()
 		line.Position = UDim2.fromOffset(offsets[index].X, offsets[index].Y)
 	end
 	refs.Crosshair.Visible = not UIState.InputBlocked() and WeaponController.IsDrawn()
+	local activeStats = WeaponController.GetStats(WeaponController.GetActiveSlot())
+	refs.Scope.Visible = refs.Crosshair.Visible
+		and WeaponController.IsAiming()
+		and activeStats ~= nil
+		and activeStats.Type == "SniperRifle"
+	local chargeLevel = WeaponController.GetCharge()
+	refs.Charge.Visible = chargeLevel ~= nil
+	if chargeLevel then
+		(refs.Charge:FindFirstChild("Fill") :: Frame).Size = UDim2.fromScale(chargeLevel, 1)
+	end
 	refs.HitMarker.Visible = os.clock() < hitMarkerUntil
 end
 

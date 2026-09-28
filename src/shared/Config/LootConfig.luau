@@ -19,6 +19,9 @@ export type LootSource = {
 	-- Items whose def Sources contain this tag can drop here.
 	PoolTag: string,
 	IncludeWorldPool: boolean,
+	-- Weapons only come from PoolTag (armor may still come from the world
+	-- pool): gives each mission its own set of guns to chase.
+	WeaponPoolOnly: boolean?,
 }
 
 local Sources: { [string]: LootSource } = {
@@ -38,6 +41,34 @@ local Sources: { [string]: LootSource } = {
 		ArmorChance = 0.4,
 		PoolTag = "Story",
 		IncludeWorldPool = true,
+	},
+	-- Story missions: each has its own weapon pool.
+	FirstLight = {
+		RewardKind = "World",
+		RarityWeights = { Rare = 60, Epic = 40 },
+		ExoticChance = 0.01,
+		ArmorChance = 0.35,
+		PoolTag = "FirstLight",
+		IncludeWorldPool = true,
+		WeaponPoolOnly = true,
+	},
+	SunkenRelay = {
+		RewardKind = "World",
+		RarityWeights = { Rare = 50, Epic = 50 },
+		ExoticChance = 0.015,
+		ArmorChance = 0.35,
+		PoolTag = "SunkenRelay",
+		IncludeWorldPool = true,
+		WeaponPoolOnly = true,
+	},
+	HollowDark = {
+		RewardKind = "World",
+		RarityWeights = { Rare = 35, Epic = 50, Legendary = 15 },
+		ExoticChance = 0.02,
+		ArmorChance = 0.35,
+		PoolTag = "HollowDark",
+		IncludeWorldPool = true,
+		WeaponPoolOnly = true,
 	},
 	Patrol = {
 		RewardKind = "World",

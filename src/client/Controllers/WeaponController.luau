@@ -240,29 +240,36 @@ function WeaponController.IsDrawn(): boolean
 	return player:GetAttribute("WeaponsDrawn") == true
 end
 
-local function fire()
-	local info = slots[active]
-	local stats = WeaponController.GetStats(active)
-	local character = player.Character
-	if info == nil or stats == nil or character == nil or not WeaponController.IsDrawn() then
-		return
-	end
-	local now = os.clock()
-	if now < swapReadyAt or now < reloadingUntil or now < nextFireAt then
-		return
-	end
-	if stats.FireMode ~= "Auto" and not semiReady then
-		return
-	end
-	if info.Mag <= 0 then
-		semiReady = false
-		reload()
-		return
-	end
+local chargeStarted: number? = nil
+local ramp = 0
+local lastShotAt = 0
 
-	semiReady = false
-	nextFireAt = now + stats.FireInterval
-	info.Mag -= 1
+-- 0..1 while a charge weapon (fusion rifle) is charging, nil otherwise.
+function WeaponController.GetCharge(): number?
+	local stats = WeaponController.GetStats(active)
+	if chargeStarted == nil or stats == nil or stats.ChargeTime <= 0 then
+		return nil
+	end
+	return math.clamp((os.clock() - chargeStarted) / stats.ChargeTime, 0, 1)
+end
+
+local function discharge(stats: WeaponStats.WeaponStats, info: SlotInfo, character: Model)
+	local now = os.clock()
+	local interval = stats.FireInterval
+	if stats.FireMode == "Charge" then
+		interval = math.max(interval, stats.ChargeTime)
+	end
+	local exotic = stats.Exotic
+	if exotic and exotic.Kind == "RpmRampAndChain" then
+		-- Perpetual Motion spins up while the trigger is held (slightly behind
+		-- the server's own ramp so no shot is ever early).
+		ramp = if now - lastShotAt < stats.FireInterval * 2.5 then math.min(1, ramp + 0.05) else 0
+		interval /= 1 + exotic.Value * ramp
+	end
+	local rounds = math.min(stats.BurstCount, info.Mag)
+	info.Mag -= rounds
+	nextFireAt = now + interval
+	lastShotAt = now
 
 	local origin, look = CameraController.GetAimRay()
 	local direction = spreadDirection(look, WeaponController.GetSpread())
@@ -280,18 +287,74 @@ local function fire()
 	local element = ElementConfig.Elements[stats.Element]
 	local color = if element then element.Color else Color3.new(1, 1, 1)
 	local muzzle = EffectsController.MuzzleOf(character) or origin
-	EffectsController.MuzzleFlash(muzzle, color)
-	if stats.Projectile == nil then
-		EffectsController.Tracer(muzzle, aimPoint, color)
-		if result then
-			EffectsController.Impact(aimPoint)
+	if stats.FireMode ~= "Melee" then
+		EffectsController.MuzzleFlash(muzzle, color)
+	end
+	if stats.Projectile == nil and stats.FireMode ~= "Melee" then
+		-- One tracer per round of a burst (spaced out) or per pellet/bolt (spread).
+		local count = if stats.FireMode == "Burst" then rounds else stats.Pellets
+		local cone = if stats.Pellets > 1 then stats.SpreadHip * 0.9 else 0.35
+		for index = 1, count do
+			local delay = if stats.FireMode == "Burst" then (index - 1) * stats.BurstDelay else 0
+			local tracerEnd = if index == 1 and stats.Pellets == 1
+				then aimPoint
+				else origin + spreadDirection(direction, cone) * (if result
+					then (aimPoint - origin).Magnitude
+					else stats.MaxRange)
+			task.delay(delay, function()
+				local from = EffectsController.MuzzleOf(character) or muzzle
+				EffectsController.Tracer(from, tracerEnd, color)
+				if result then
+					EffectsController.Impact(tracerEnd)
+				end
+			end)
 		end
 	end
-	EffectsController.PlaySound(weaponSound(stats.Type, "Fire"), muzzle, 0.5)
+	EffectsController.PlaySound(
+		weaponSound(stats.Type, if stats.FireMode == "Melee" then "Swing" else "Fire"),
+		muzzle,
+		0.5
+	)
 
 	if info.Mag <= 0 then
 		task.delay(0.15, reload)
 	end
+end
+
+local function fire()
+	local info = slots[active]
+	local stats = WeaponController.GetStats(active)
+	local character = player.Character
+	if info == nil or stats == nil or character == nil or not WeaponController.IsDrawn() then
+		chargeStarted = nil
+		return
+	end
+	local now = os.clock()
+	if now < swapReadyAt or now < reloadingUntil or now < nextFireAt then
+		return
+	end
+	if stats.FireMode ~= "Auto" and not semiReady then
+		return
+	end
+	if info.Mag <= 0 then
+		semiReady = false
+		chargeStarted = nil
+		reload()
+		return
+	end
+	if stats.FireMode == "Charge" then
+		-- Fusion rifles: hold the trigger until the charge completes.
+		if chargeStarted == nil then
+			chargeStarted = now
+			EffectsController.PlaySound(weaponSound(stats.Type, "Charge"), nil, 0.5)
+			return
+		elseif now - (chargeStarted :: number) < stats.ChargeTime then
+			return
+		end
+		chargeStarted = nil
+	end
+	semiReady = false
+	discharge(stats, info, character)
 end
 
 -- Hold pose: plays Roblox's default "tool held" arm animation so guns point forward.
@@ -412,6 +475,7 @@ function WeaponController.Start()
 	UserInputService.InputEnded:Connect(function(input: InputObject)
 		if isAction(input, "Fire") then
 			fireHeld = false
+			chargeStarted = nil
 		elseif isAction(input, "Aim") then
 			setAiming(false)
 		end

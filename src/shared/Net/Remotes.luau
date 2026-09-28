@@ -68,6 +68,9 @@ local Definitions: { [string]: RemoteDef } = {
 	ProjectileSpawned = { Kind = "Event", Direction = "ToClient" },
 	-- Server -> all: (id, position, exploded, radius)
 	ProjectileEnded = { Kind = "Event", Direction = "ToClient" },
+	-- Server -> everyone: (kind, ...) explosions, lightning arcs, singularities,
+	-- sword slashes, spawn portals, boss telegraphs
+	WorldEffect = { Kind = "Unreliable", Direction = "ToClient" },
 	-- Server -> owner: alive/dead, respawn timer, revive state
 	PlayerStatus = { Kind = "Event", Direction = "ToClient" },
 

@@ -10,7 +10,8 @@
 	The client's developer panel (DebugPanelController) and the chat commands
 	(DevCommandController: /setpower, /give, /launch, /god, /resetweek,
 	/wipe, /skip, /heavy, /kill, /leave) send these through the DebugCommand
-	remote: DebugCommand(command, stringArg?, numberArg?).
+	remote: DebugCommand(command, stringArg?, numberArg?). /giveall gives one of
+	every weapon.
 ]]
 
 local Players = game:GetService("Players")
@@ -25,6 +26,8 @@ local Guard = require(Shared.Net.Guard)
 local ItemCatalog = require(Shared.Items.ItemCatalog)
 local ItemRoller = require(Shared.Items.ItemRoller)
 local ActivityConfig = require(Shared.Config.ActivityConfig)
+local Inventory = require(Shared.Items.Inventory)
+local WeaponConfig = require(Shared.Config.WeaponConfig)
 local PowerConfig = require(Shared.Config.PowerConfig)
 local PowerMath = require(Shared.Power.PowerMath)
 local RarityConfig = require(Shared.Config.RarityConfig)
@@ -245,6 +248,39 @@ local Commands: { [string]: Handler } = {
 		if not equipped then
 			NetService.Notify(player, `Added to inventory (not equipped: {reason})`, "Warning")
 		end
+	end,
+
+	-- /giveall: one of every weapon at your power (overflow goes to the vault).
+	GiveAll = function(player)
+		local data = DataService.GetData(player)
+		if data == nil then
+			return
+		end
+		local highest = PowerMath.HighestPossible(data.Items)
+		local given, stored = 0, 0
+		for _, weapon in WeaponConfig.List do
+			local item = ItemRoller.Roll(weapon.Id, highest, rng, DataService.NewUid(), os.time(), "Random")
+			if item then
+				local location: string? = if Inventory.HasRoom(data, "Inventory", item.Slot)
+					then "Inventory"
+					elseif Inventory.HasRoom(data, "Vault") then "Vault"
+					else nil
+				if location then
+					item.Location = location :: any
+					item.Seen = false
+					DataService.Set(player, { "Items", item.Uid }, item)
+					given += 1
+					if location == "Vault" then
+						stored += 1
+					end
+				end
+			end
+		end
+		NetService.Notify(
+			player,
+			`Added {given} weapons ({stored} went to the vault). Open the inventory with Tab.`,
+			"Success"
+		)
 	end,
 
 	-- /launch <activity> [difficulty]: skips unlock checks. Text is "ID" or "ID:Difficulty".

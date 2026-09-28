@@ -67,7 +67,8 @@ export type WeaponTypeDef = {
 	Ads: { Fov: number, MoveSpeedScale: number },
 	Spread: { Hip: number, Ads: number, PerShot: number, Max: number },
 	Recoil: { Vertical: number, Horizontal: number, Recovery: number },
-	Projectile: { Speed: number, BlastRadius: number }?,
+	-- Gravity (studs/s^2) makes grenades arc; rockets fly straight.
+	Projectile: { Speed: number, BlastRadius: number, Gravity: number? }?,
 }
 
 export type PerkEffect = {

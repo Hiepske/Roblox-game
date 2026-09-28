@@ -86,6 +86,8 @@ export type RewardDef = {
 	ExclusiveChance: number?,
 	-- Extra drops given when every weekly milestone was already claimed.
 	FallbackDrops: number?,
+	-- Guarantee a weapon from the pool the player doesn't own yet.
+	NewWeapon: boolean?,
 }
 
 export type ModifierDef = {
@@ -185,13 +187,13 @@ local List: { ActivityDef } = {
 		MinPlayers = 1,
 		MaxPlayers = 3,
 		PowerEnabled = true,
-		LootSource = "Story",
+		LootSource = "FirstLight",
 		Factions = { "Rustborn" },
 		Place = "Mission",
 		Order = 1,
 		Map = "FirstLight",
 		Playable = true,
-		Rewards = { Drops = { Min = 2, Max = 3 }, Rarities = { Rare = 60, Epic = 40 } },
+		Rewards = { Drops = { Min = 2, Max = 3 }, Rarities = { Rare = 60, Epic = 40 }, NewWeapon = true },
 		Objectives = {
 			{ Kind = "Travel", Text = "Reach the outpost", Target = "Zone_Outpost", Checkpoint = "Checkpoint_Outpost" },
 			{

@@ -214,7 +214,7 @@ local Types_: { [string]: WeaponTypeDef } = {
 		Ads = { Fov = 55, MoveSpeedScale = 0.8 },
 		Spread = { Hip = 1.0, Ads = 0.3, PerShot = 0.0, Max = 1.0 },
 		Recoil = { Vertical = 3.0, Horizontal = 0.5, Recovery = 6 },
-		Projectile = { Speed = 140, BlastRadius = 9 },
+		Projectile = { Speed = 140, BlastRadius = 9, Gravity = 70 },
 	},
 	RocketLauncher = {
 		DisplayName = "Rocket Launcher",

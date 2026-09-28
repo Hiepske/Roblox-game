@@ -56,7 +56,25 @@ export type WeaponStats = {
 	RecoilVertical: number,
 	RecoilHorizontal: number,
 	RecoilRecovery: number,
-	Projectile: { Speed: number, BlastRadius: number }?,
+	Projectile: { Speed: number, BlastRadius: number, Gravity: number? }?,
+	-- Pellets per shot (shotguns); bolts per charged shot (fusion rifles).
+	Pellets: number,
+	-- Rounds per trigger pull (pulse rifles) and the gap between them.
+	BurstCount: number,
+	BurstDelay: number,
+	-- Seconds a charge weapon must charge before it fires.
+	ChargeTime: number,
+	-- The exotic perk's effect, if this is an exotic with one.
+	Exotic: ExoticEffect?,
+}
+
+export type ExoticEffect = {
+	PerkId: string,
+	Kind: string,
+	Value: number,
+	Every: number,
+	Radius: number,
+	Duration: number,
 }
 
 local WeaponStats = {}
@@ -108,6 +126,22 @@ function WeaponStats.Compute(item: Types.ItemInstance): WeaponStats?
 		end
 	end
 
+	local exotic: ExoticEffect? = nil
+	for _, perkId in item.Perks do
+		local perk = PerkConfig.ById[perkId]
+		if perk and perk.Column == "Exotic" and perk.Effect then
+			local effect = perk.Effect
+			exotic = {
+				PerkId = perk.Id,
+				Kind = effect.Kind,
+				Value = effect.Value or 1,
+				Every = effect.Every or 1,
+				Radius = effect.Radius or 8,
+				Duration = effect.Duration or 3,
+			}
+		end
+	end
+
 	local rpm = def.Rpm or archetype.Rpm
 	local rangeScale = lerp(tuning.RangeScaleMin, tuning.RangeScaleMax, stats.Range / 100)
 	local recoilScale = lerp(tuning.StabilityRecoilMax, tuning.StabilityRecoilMin, stats.Stability / 100)
@@ -144,6 +178,11 @@ function WeaponStats.Compute(item: Types.ItemInstance): WeaponStats?
 		RecoilHorizontal = archetype.Recoil.Horizontal * recoilScale,
 		RecoilRecovery = archetype.Recoil.Recovery,
 		Projectile = archetype.Projectile,
+		Pellets = if archetype.FireMode == "Charge" then archetype.BurstCount or 1 else archetype.Pellets or 1,
+		BurstCount = if archetype.FireMode == "Burst" then archetype.BurstCount or 3 else 1,
+		BurstDelay = 0.07,
+		ChargeTime = archetype.ChargeTime or 0,
+		Exotic = exotic,
 	}
 end
 

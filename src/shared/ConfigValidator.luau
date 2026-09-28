@@ -61,6 +61,10 @@ local ITEM_SOURCES = {
 	Vendor = true,
 	Quest = true,
 	ExoticPool = true,
+	-- Per-mission weapon pools.
+	FirstLight = true,
+	SunkenRelay = true,
+	HollowDark = true,
 }
 
 local WEAPON_SLOTS = { Kinetic = true, Energy = true, Heavy = true }
@@ -609,7 +613,7 @@ function ConfigValidator.Validate(): { string }
 						weapon.Rarity == rarityId
 						and (
 							table.find(sources, source.PoolTag)
-							or (source.IncludeWorldPool and table.find(sources, "World"))
+							or (source.IncludeWorldPool and not source.WeaponPoolOnly and table.find(sources, "World"))
 						)
 					then
 						found = true

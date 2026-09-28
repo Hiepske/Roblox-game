@@ -25,7 +25,7 @@ local folder: Folder
 local pool: { Part } = {}
 local numberAnchors: { Part } = {}
 
-type Visual = { Parts: { BasePart }, Position: Vector3, Velocity: Vector3, Born: number }
+type Visual = { Parts: { BasePart }, Position: Vector3, Velocity: Vector3, Gravity: number, Born: number }
 local projectiles: { [number]: Visual } = {}
 
 local COLORS = {
@@ -152,6 +152,59 @@ function EffectsController.Explosion(position: Vector3, radius: number, color: C
 	EffectsController.PlaySound(AssetIds.Sounds.Combat.Explosion, position, 0.8)
 end
 
+-- A jagged lightning arc between two points.
+function EffectsController.Arc(from: Vector3, to: Vector3, color: Color3)
+	local segments = 5
+	local last = from
+	for index = 1, segments do
+		local t = index / segments
+		local point = from:Lerp(to, t)
+		if index < segments then
+			point += Vector3.new(math.random() - 0.5, math.random() - 0.5, math.random() - 0.5) * 2.2
+		end
+		local length = (point - last).Magnitude
+		if length > 0.05 then
+			local part = takePart()
+			part.Color = color
+			part.Size = Vector3.new(0.18, 0.18, length)
+			part.CFrame = CFrame.lookAt(last, point) * CFrame.new(0, 0, -length / 2)
+			fadeAndRelease(part, 0.25)
+		end
+		last = point
+	end
+end
+
+-- A dark, pulsing well that shrinks away after `duration` seconds.
+function EffectsController.Singularity(position: Vector3, radius: number, duration: number)
+	local core = takePart()
+	core.Shape = Enum.PartType.Ball
+	core.Color = Color3.fromRGB(120, 60, 220)
+	core.Material = Enum.Material.ForceField
+	core.Size = Vector3.new(1, 1, 1)
+	core.CFrame = CFrame.new(position)
+	local light = Instance.new("PointLight")
+	light.Color = core.Color
+	light.Range = radius * 2
+	light.Brightness = 3
+	light.Parent = core
+	TweenService:Create(core, TweenInfo.new(0.3), { Size = Vector3.new(radius * 2, radius * 2, radius * 2) }):Play()
+	task.delay(math.max(0.3, duration - 0.4), function()
+		fadeAndRelease(core, 0.4, { Size = Vector3.new(0.5, 0.5, 0.5) })
+	end)
+end
+
+-- A sword slash: a fan of glowing blades in front of `origin`.
+function EffectsController.Slash(origin: CFrame, range: number, color: Color3)
+	for index = -2, 2 do
+		local part = takePart()
+		part.Color = color
+		part.Size = Vector3.new(0.15, 0.4, range * 0.8)
+		part.CFrame = origin * CFrame.Angles(0, math.rad(index * 18), 0) * CFrame.new(0, 1, -range * 0.45)
+		part.Transparency = 0.2
+		fadeAndRelease(part, 0.18)
+	end
+end
+
 -- Floating damage number at a world position.
 function EffectsController.DamageNumber(position: Vector3, amount: number, precision: boolean, flag: string?)
 	local anchor = table.remove(numberAnchors)
@@ -253,7 +306,18 @@ local function projectileVisual(style: string, color: Color3): { BasePart }
 		return parts
 	end
 	core.Shape = Enum.PartType.Ball
-	local size = if style == "BossOrb" then 1.8 else 0.7
+	if style == "Grenade" then
+		core.Material = Enum.Material.Metal
+		core.Color = Color3.fromRGB(60, 64, 72)
+		core.Size = Vector3.new(0.8, 0.8, 0.8)
+		local glow = Instance.new("PointLight")
+		glow.Color = color
+		glow.Range = 8
+		glow.Parent = core
+		table.insert(parts, core)
+		return parts
+	end
+	local size = if style == "BossOrb" then 1.8 elseif style == "Bomblet" then 0.5 else 0.7
 	core.Size = Vector3.new(size, size, size)
 	local light = Instance.new("PointLight")
 	light.Color = color
@@ -293,25 +357,29 @@ function EffectsController.Init()
 	folder.Name = "ClientEffects"
 	folder.Parent = Workspace
 
-	ClientNet.On("ProjectileSpawned", function(id: any, origin: any, velocity: any, style: any, color: any)
-		if type(id) ~= "number" or typeof(origin) ~= "Vector3" or typeof(velocity) ~= "Vector3" then
-			return
+	ClientNet.On(
+		"ProjectileSpawned",
+		function(id: any, origin: any, velocity: any, style: any, color: any, gravity: any)
+			if type(id) ~= "number" or typeof(origin) ~= "Vector3" or typeof(velocity) ~= "Vector3" then
+				return
+			end
+			local visual: Visual = {
+				Parts = projectileVisual(
+					tostring(style),
+					if typeof(color) == "Color3" then color else Color3.new(1, 0.5, 0.2)
+				),
+				Position = origin,
+				Velocity = velocity,
+				Gravity = if type(gravity) == "number" then gravity else 0,
+				Born = os.clock(),
+			}
+			projectiles[id] = visual
+			placeVisual(visual)
+			if style == "Rocket" or style == "BossOrb" then
+				EffectsController.PlaySound(AssetIds.Sounds.Combat.EnemyFire, origin, 0.4)
+			end
 		end
-		local visual: Visual = {
-			Parts = projectileVisual(
-				tostring(style),
-				if typeof(color) == "Color3" then color else Color3.new(1, 0.5, 0.2)
-			),
-			Position = origin,
-			Velocity = velocity,
-			Born = os.clock(),
-		}
-		projectiles[id] = visual
-		placeVisual(visual)
-		if style == "Rocket" or style == "BossOrb" then
-			EffectsController.PlaySound(AssetIds.Sounds.Combat.EnemyFire, origin, 0.4)
-		end
-	end)
+	)
 
 	ClientNet.On("ProjectileEnded", function(id: any, position: any, radius: any)
 		if type(id) ~= "number" then
@@ -329,6 +397,19 @@ function EffectsController.Init()
 			else
 				EffectsController.Impact(position, color)
 			end
+		end
+	end)
+
+	ClientNet.On("WorldEffect", function(kind: any, a: any, b: any, c: any)
+		local tint = if typeof(c) == "Color3" then c else Color3.fromRGB(255, 180, 90)
+		if kind == "Explosion" and typeof(a) == "Vector3" then
+			EffectsController.Explosion(a, tonumber(b) or 6, tint)
+		elseif kind == "Arc" and typeof(a) == "Vector3" and typeof(b) == "Vector3" then
+			EffectsController.Arc(a, b, tint)
+		elseif kind == "Singularity" and typeof(a) == "Vector3" then
+			EffectsController.Singularity(a, tonumber(b) or 10, tonumber(c) or 3)
+		elseif kind == "Slash" and typeof(a) == "CFrame" then
+			EffectsController.Slash(a, tonumber(b) or 10, tint)
 		end
 	end)
 
@@ -361,6 +442,9 @@ function EffectsController.Start()
 	RunService.RenderStepped:Connect(function(dt: number)
 		local now = os.clock()
 		for id, visual in projectiles do
+			if visual.Gravity ~= 0 then
+				visual.Velocity -= Vector3.new(0, visual.Gravity * dt, 0)
+			end
 			visual.Position += visual.Velocity * dt
 			placeVisual(visual)
 			if now - visual.Born > 10 then

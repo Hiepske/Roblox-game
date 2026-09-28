@@ -33,6 +33,7 @@ local REASONS: { [string]: string } = {
 	Powerful = "POWERFUL",
 	Pinnacle = "PINNACLE",
 	Exclusive = "RAID EXCLUSIVE",
+	NewWeapon = "NEW WEAPON",
 }
 
 type AwardView = {

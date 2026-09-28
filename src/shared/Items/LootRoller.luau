@@ -144,7 +144,8 @@ function LootRoller.RollDefId(sourceId: string, rng: Random, classId: string, op
 
 	local kinds: { string } = { firstKind, secondKind }
 	for _, kind in kinds do
-		local ids = LootRoller.Candidates(source.PoolTag, includeWorld, rarity, kind, classId)
+		local worldToo = includeWorld and not (kind == "Weapon" and source.WeaponPoolOnly == true)
+		local ids = LootRoller.Candidates(source.PoolTag, worldToo, rarity, kind, classId)
 		if #ids > 0 then
 			return ids[rng:NextInteger(1, #ids)]
 		end
@@ -162,6 +163,22 @@ function LootRoller.RollDefId(sourceId: string, rng: Random, classId: string, op
 		end
 	end
 	return nil
+end
+
+-- Weapon defs a source's pool can drop (for "new weapon" rewards).
+function LootRoller.PoolWeapons(sourceId: string): { string }
+	local source = LootConfig.Sources[sourceId]
+	local ids: { string } = {}
+	if source == nil then
+		return ids
+	end
+	for _, weapon in WeaponConfig.List do
+		if weapon.Rarity ~= "Exotic" and hasSource(weapon.Sources, source.PoolTag) then
+			table.insert(ids, weapon.Id)
+		end
+	end
+	table.sort(ids)
+	return ids
 end
 
 -- A complete rolled item for a player whose highest possible power is `highest`.

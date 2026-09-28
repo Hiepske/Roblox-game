@@ -20,15 +20,15 @@ describe("ConfigValidator", function()
 end)
 
 describe("Content targets", function()
-	it("has 41 weapons: 11 Rare, 12 Epic, 12 Legendary, 6 Exotic", function()
+	it("has 44 weapons: 11 Rare, 12 Epic, 15 Legendary, 6 Exotic", function()
 		local counts = { Rare = 0, Epic = 0, Legendary = 0, Exotic = 0 }
 		for _, weapon in WeaponConfig.List do
 			counts[weapon.Rarity] += 1
 		end
-		expect(#WeaponConfig.List).toBe(41)
+		expect(#WeaponConfig.List).toBe(44)
 		expect(counts.Rare).toBe(11)
 		expect(counts.Epic).toBe(12)
-		expect(counts.Legendary).toBe(12)
+		expect(counts.Legendary).toBe(15)
 		expect(counts.Exotic).toBe(6)
 	end)
 

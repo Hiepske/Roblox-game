@@ -79,12 +79,41 @@ local function complete(activityId, difficultyId)
 	})
 end
 
+describe("Mission weapon pools", function()
+	local LootRoller = require(Shared.Items.LootRoller)
+	local WeaponConfig = require(Shared.Config.WeaponConfig)
+
+	it("drops First Light weapons only from its own pool", function()
+		local rng = VirtualGame.Random.new(11)
+		for _ = 1, 200 do
+			local defId = LootRoller.RollDefId("FirstLight", rng, "Bulwark", { NoExotic = true })
+			local weapon = WeaponConfig.ById[defId]
+			if weapon then
+				expect(table.find(weapon.Sources, "FirstLight") ~= nil).toBe(true)
+			end
+		end
+	end)
+
+	it("guarantees a weapon the player doesn't own yet", function()
+		freshSave(350)
+		local owned = {}
+		for _, item in data.Items do
+			owned[item.DefId] = true
+		end
+		local item = LootService.NewWeapon(nil, "FirstLight")
+		expect(item ~= nil).toBe(true)
+		expect(owned[item.DefId]).toBeNil()
+		expect(table.find(WeaponConfig.ById[item.DefId].Sources, "FirstLight") ~= nil).toBe(true)
+	end)
+end)
+
 describe("Activity rewards", function()
 	it("story: 2-3 Rare/Epic drops at +0..+5 power and a loot screen", function()
 		for _ = 1, 20 do
 			freshSave(350)
 			local awards = complete("STORY_01")
-			expect(#awards >= 2 and #awards <= 3).toBe(true)
+			-- 2-3 drops plus the guaranteed new weapon.
+			expect(#awards >= 3 and #awards <= 4).toBe(true)
 			-- Each drop is +0..+5 over the highest possible power at the time it
 			-- rolls; earlier drops in the batch can nudge that up.
 			local owned = {}
@@ -98,7 +127,7 @@ describe("Activity rewards", function()
 				local highest = PowerMath.HighestPossible(owned)
 				expect(award.Item.Rarity == "Rare" or award.Item.Rarity == "Epic").toBe(true)
 				expect(award.Item.Power >= highest and award.Item.Power <= highest + 5).toBe(true)
-				expect(award.Reason).toBe("Drop")
+				expect(award.Reason == "Drop" or award.Reason == "NewWeapon").toBe(true)
 				owned[award.Item.Uid] = award.Item
 			end
 			expect(sent[#sent].Name).toBe("LootAwarded")

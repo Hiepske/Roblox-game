@@ -298,6 +298,7 @@ local function build(screen: ScreenGui)
 	command("Save Now", "SaveNow")
 	command("Apply Resets", "ExpireResets")
 	-- Phase 2 shortcuts (same as the chat commands /setpower, /launch, /god...).
+	command("Give All Weapons", "GiveAll")
 	command("Power 450", "SetPower", nil, 450)
 	command("Power 490", "SetPower", nil, 490)
 	command("Launch Story", "Launch", "story")
