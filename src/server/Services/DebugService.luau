@@ -9,7 +9,7 @@
 
 	The client's developer panel (DebugPanelController) and the chat commands
 	(DevCommandController: /setpower, /give, /launch, /god, /resetweek,
-	/wipe, /skip, /heavy, /kill, /leave) send these through the DebugCommand
+	/wipe, /skip, /zone, /heavy, /kill, /leave) send these through the DebugCommand
 	remote: DebugCommand(command, stringArg?, numberArg?). /giveall gives one of
 	every weapon.
 ]]
@@ -311,6 +311,12 @@ local Commands: { [string]: Handler } = {
 
 	Skip = function(player)
 		if not ActivityService.SkipObjective(player) then
+			NetService.Notify(player, "You're not in an activity.", "Error")
+		end
+	end,
+
+	Zone = function(player, _text, number)
+		if not ActivityService.JumpToZone(player, number or 1) then
 			NetService.Notify(player, "You're not in an activity.", "Error")
 		end
 	end,

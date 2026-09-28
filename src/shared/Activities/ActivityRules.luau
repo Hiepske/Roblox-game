@@ -8,8 +8,7 @@
 	  * difficulty selection and recommended power
 	  * this week's hardened strike modifiers (deterministic from the reset
 	    time, so every server and client agrees without talking)
-	  * the flattened objective list (top-level objectives, or the playable
-	    encounters' objectives for raids)
+	(The zone flow's rules live in MissionRules.)
 ]]
 
 local Shared = script.Parent.Parent
@@ -149,28 +148,6 @@ function ActivityRules.ModifiersFor(activity: ActivityDef, now: number): { strin
 		return ActivityRules.WeeklyModifiers(now)
 	end
 	return {}
-end
-
-export type ObjectiveEntry = {
-	Objective: ActivityConfig.ObjectiveDef,
-	-- Set when the objective belongs to a raid/dungeon encounter.
-	Encounter: ActivityConfig.EncounterDef?,
-}
-
--- Every objective the runner walks through, in order.
-function ActivityRules.ObjectiveList(activity: ActivityDef): { ObjectiveEntry }
-	local list: { ObjectiveEntry } = {}
-	for _, objective in activity.Objectives or {} :: { ActivityConfig.ObjectiveDef } do
-		table.insert(list, { Objective = objective })
-	end
-	for _, encounter in activity.Encounters or {} :: { ActivityConfig.EncounterDef } do
-		if encounter.Playable then
-			for _, objective in encounter.Objectives do
-				table.insert(list, { Objective = objective, Encounter = encounter })
-			end
-		end
-	end
-	return list
 end
 
 return ActivityRules

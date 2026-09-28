@@ -90,44 +90,12 @@ describe("Hub map", function()
 end)
 
 describe("Activity maps", function()
+	local MapMarkers = require(game.ServerScriptService.Missions.MapMarkers)
 	for _, activity in ActivityRules.Playable() do
-		it(activity.Name .. " contains every marker its objectives use", function()
+		it(activity.Name .. " contains every marker its zones use", function()
 			local model = require(Maps[activity.Map .. "Builder"]).Build()
 			expect(model.Name).toBe(activity.Map)
-			expect(find(model, "Markers", "PlayerStart") ~= nil).toBe(true)
-
-			local missing = {}
-			local function need(ok, what)
-				if not ok then
-					table.insert(missing, what)
-				end
-			end
-			for _, entry in ActivityRules.ObjectiveList(activity) do
-				local objective = entry.Objective
-				if objective.Target then
-					need(find(model, "Markers", objective.Target) ~= nil, "marker " .. objective.Target)
-				end
-				if objective.Checkpoint then
-					need(find(model, "Markers", objective.Checkpoint) ~= nil, "checkpoint " .. objective.Checkpoint)
-				end
-				if objective.Door then
-					need(find(model, "Doors", objective.Door) ~= nil, "door " .. objective.Door)
-				end
-				for _, spawn in objective.Spawns or {} do
-					need(find(model, "Markers", "Spawn_" .. spawn.Group .. "_1") ~= nil, "spawn group " .. spawn.Group)
-				end
-				if objective.AddsGroup then
-					need(
-						find(model, "Markers", "Spawn_" .. objective.AddsGroup .. "_1") ~= nil,
-						"adds group " .. objective.AddsGroup
-					)
-				end
-				if objective.Mechanic == "EchoPlates" then
-					for index = 1, 3 do
-						need(findDeep(model, "Plate_" .. index) ~= nil, "Plate_" .. index)
-					end
-				end
-			end
+			local missing = MapMarkers.Missing(model, activity)
 			if #missing > 0 then
 				error("missing: " .. table.concat(missing, ", "))
 			end

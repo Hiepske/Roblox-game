@@ -11,6 +11,7 @@
 local Config = script.Parent.Config
 local ActivityConfig = require(Config.ActivityConfig)
 local ArmorConfig = require(Config.ArmorConfig)
+local BossConfig = require(Config.BossConfig)
 local BountyConfig = require(Config.BountyConfig)
 local ClassConfig = require(Config.ClassConfig)
 local EconomyConfig = require(Config.EconomyConfig)
@@ -71,10 +72,36 @@ local WEAPON_SLOTS = { Kinetic = true, Energy = true, Heavy = true }
 
 -- Boss mechanics implemented in src/server/Activities/BossMechanics.
 local BOSS_MECHANICS = { Standard = true, ImmuneAdds = true, EchoPlates = true }
+local STEP_KINDS = {
+	Travel = true,
+	Waves = true,
+	Defend = true,
+	Survive = true,
+	Destroy = true,
+	Interact = true,
+	Boss = true,
+}
+local ARRIVALS = { Portal = true, Dropship = true, Ambush = true }
+local BOSS_SCRIPTS = { EchoPlates = true }
 
 function ConfigValidator.Validate(): { string }
 	local problems: { string } = {}
-	local function report(message: string)
+	local report: (string) -> ()
+	-- Enemy id -> count tables used by boss adds.
+	local function checkBossEnemies(enemies: { [string]: number }, label: string)
+		for enemyId, count in enemies do
+			local def = EnemyConfig.ById[enemyId]
+			if def == nil then
+				report(`{label}: unknown enemy {enemyId}`)
+			elseif def.Tier == "Boss" or def.Dummy then
+				report(`{label}: {enemyId} can't be an add`)
+			end
+			if count < 1 then
+				report(`{label}: {enemyId} count must be >= 1`)
+			end
+		end
+	end
+	function report(message: string)
 		table.insert(problems, message)
 	end
 
@@ -450,6 +477,55 @@ function ConfigValidator.Validate(): { string }
 		end
 	end
 
+	-- Bosses ----------------------------------------------------------------------------------
+	local captains = BossConfig.CaptainMultiple
+	for _, boss in BossConfig.List do
+		local where = `BossConfig {boss.Id}`
+		local enemy = EnemyConfig.ById[boss.Enemy]
+		if enemy == nil then
+			report(`{where}: unknown enemy {boss.Enemy}`)
+		else
+			if enemy.Tier ~= "Boss" then
+				report(`{where}: {boss.Enemy} isn't a Boss-tier enemy`)
+			end
+			local multiple = enemy.Health / EnemyConfig.CaptainHealth
+			if multiple < captains.Min or multiple > captains.Max then
+				report(`{where}: health is {multiple}x a captain, want {captains.Min}-{captains.Max}x`)
+			end
+		end
+		local last = 1
+		for _, immune in boss.Immune do
+			if immune.At <= 0 or immune.At >= last then
+				report(`{where}: immune thresholds must go down from 1 to 0`)
+			end
+			last = immune.At
+			if immune.Break == "Adds" then
+				checkBossEnemies(immune.Enemies or {}, `{where}/immune {immune.At}`)
+			elseif immune.Break == "Pylons" then
+				local pylon = EnemyConfig.ById[immune.Enemy or "RUST_PYLON"]
+				if pylon == nil or pylon.Role ~= "Object" then
+					report(`{where}/immune {immune.At}: pylons must be an Object-role enemy`)
+				end
+			else
+				report(`{where}: unknown immune break {immune.Break}`)
+			end
+		end
+		for _, attack in boss.Attacks do
+			if attack.Cooldown <= 0 then
+				report(`{where}: {attack.Kind} needs a positive Cooldown`)
+			end
+		end
+		if boss.Adds then
+			checkBossEnemies(boss.Adds.Enemies, `{where}/adds`)
+		end
+		if boss.Script and not BOSS_SCRIPTS[boss.Script] then
+			report(`{where}: unknown script {boss.Script}`)
+		end
+		if boss.HeavyAmmoEvery <= 0 then
+			report(`{where}: HeavyAmmoEvery must be positive`)
+		end
+	end
+
 	-- Activities ----------------------------------------------------------------------------
 	local storyCount, strikeCount = 0, 0
 	for _, activity in ActivityConfig.List do
@@ -486,8 +562,8 @@ function ConfigValidator.Validate(): { string }
 			report(`{where}: unlock requires unknown mission {activity.Unlock.Story}`)
 		end
 
-		-- `playable` enables the checks the runtime needs (maps, spawns, zones).
-		local function checkObjectives(objectives: { ActivityConfig.ObjectiveDef }?, label: string, playable: boolean)
+		-- Older descriptive objectives (activities that aren't built yet).
+		local function checkObjectives(objectives: { ActivityConfig.ObjectiveDef }?, label: string)
 			for _, objective in listOf(objectives) do
 				if objective.Enemy and EnemyConfig.ById[objective.Enemy] == nil then
 					report(`{label}: objective references unknown enemy {objective.Enemy}`)
@@ -498,40 +574,97 @@ function ConfigValidator.Validate(): { string }
 				if objective.Mechanic and not BOSS_MECHANICS[objective.Mechanic] then
 					report(`{label}: unknown boss mechanic {objective.Mechanic}`)
 				end
-				if not playable then
-					continue
+			end
+		end
+
+		local function checkEnemies(enemies: { [string]: number }, label: string)
+			local total = 0
+			for enemyId, count in enemies do
+				local def = EnemyConfig.ById[enemyId]
+				if def == nil then
+					report(`{label}: unknown enemy {enemyId}`)
+				elseif def.Dummy then
+					report(`{label}: spawns a range dummy`)
+				elseif def.Tier == "Boss" then
+					report(`{label}: bosses belong in Boss steps, not waves`)
 				end
-				if objective.Kind == "Boss" and objective.Enemy == nil then
-					report(`{label}: Boss objectives need an Enemy`)
+				if count < 1 or count % 1 ~= 0 then
+					report(`{label}: {enemyId} count must be a whole number >= 1`)
 				end
-				if (objective.Kind == "Travel" or objective.Kind == "Defend") and objective.Target == nil then
-					report(`{label}: {objective.Kind} objectives need a Target zone`)
+				total += count
+			end
+			if total == 0 then
+				report(`{label}: empty wave`)
+			end
+		end
+
+		-- The zone flow MissionService runs.
+		local function checkZones(zones: { ActivityConfig.ZoneDef }?, label: string)
+			local ids: { [string]: boolean } = {}
+			for _, zone: ActivityConfig.ZoneDef in listOf(zones) do
+				local zoneWhere = `{label}/{zone.Id}`
+				if ids[zone.Id] then
+					report(`{zoneWhere}: duplicate zone id`)
 				end
-				if objective.Kind == "Defend" and (objective.Duration == nil or objective.Duration <= 0) then
-					report(`{label}: Defend objectives need a Duration`)
+				ids[zone.Id] = true
+				if #zone.Steps == 0 then
+					report(`{zoneWhere}: zones need at least one step`)
 				end
-				if objective.Kind == "Defeat" and #listOf(objective.Spawns) == 0 then
-					report(`{label}: Defeat objectives need Spawns`)
-				end
-				for _, spawn in listOf(objective.Spawns) do
-					for _, entry in spawn.Enemies do
-						if EnemyConfig.ById[entry.Id] == nil then
-							report(`{label}: spawn group {spawn.Group} has unknown enemy {entry.Id}`)
-						elseif EnemyConfig.ById[entry.Id].Dummy then
-							report(`{label}: spawn group {spawn.Group} spawns a range dummy`)
+				local steps: { ActivityConfig.StepDef } = zone.Steps
+				for index, step in steps do
+					local at = `{zoneWhere}/step {index}`
+					if not STEP_KINDS[step.Kind] then
+						report(`{at}: unknown step kind {step.Kind}`)
+					end
+					local needsTarget = step.Kind == "Travel"
+						or step.Kind == "Defend"
+						or step.Kind == "Interact"
+						or step.Kind == "Destroy"
+					if needsTarget and step.Target == nil then
+						report(`{at}: {step.Kind} steps need a Target marker`)
+					end
+					if (step.Kind == "Defend" or step.Kind == "Survive") and (step.Duration or 0) <= 0 then
+						report(`{at}: {step.Kind} steps need a Duration`)
+					end
+					if step.Kind == "Waves" and #listOf(step.Waves) == 0 then
+						report(`{at}: Waves steps need Waves`)
+					end
+					if step.Advance and (step.Advance <= 0 or step.Advance > 1) then
+						report(`{at}: Advance must be in (0, 1]`)
+					end
+					if step.Kind == "Boss" then
+						local boss = BossConfig.ById[step.Boss or ""]
+						if boss == nil then
+							report(`{at}: unknown boss {step.Boss}`)
+						end
+					end
+					if step.Enemy and EnemyConfig.ById[step.Enemy] == nil then
+						report(`{at}: unknown enemy {step.Enemy}`)
+					end
+					for waveIndex, wave in listOf(step.Waves) do
+						checkEnemies(wave.Enemies, `{at}/wave {waveIndex}`)
+						if wave.Arrival and not ARRIVALS[wave.Arrival] then
+							report(`{at}/wave {waveIndex}: unknown arrival {wave.Arrival}`)
 						end
 					end
 				end
 			end
 		end
-		checkObjectives(activity.Objectives, where, activity.Playable == true)
+
+		checkObjectives(activity.Objectives, where)
+		checkZones(activity.Zones, where)
+		local zoneCount = #listOf(activity.Zones)
 		for _, encounter in listOf(activity.Encounters) do
-			checkObjectives(encounter.Objectives, `{where}/{encounter.Id}`, encounter.Playable == true)
+			checkObjectives(encounter.Objectives, `{where}/{encounter.Id}`)
+			checkZones(encounter.Zones, `{where}/{encounter.Id}`)
 			if encounter.Milestone and MilestoneConfig.ById[encounter.Milestone] == nil then
 				report(`{where}/{encounter.Id}: unknown milestone {encounter.Milestone}`)
 			end
-			if encounter.Playable and #listOf(encounter.Objectives) == 0 then
-				report(`{where}/{encounter.Id}: playable encounters need objectives`)
+			if encounter.Playable then
+				if #listOf(encounter.Zones) == 0 then
+					report(`{where}/{encounter.Id}: playable encounters need zones`)
+				end
+				zoneCount += #listOf(encounter.Zones)
 			end
 		end
 		for _, difficulty in listOf(activity.Difficulties) do
@@ -545,8 +678,8 @@ function ConfigValidator.Validate(): { string }
 			if activity.Map == nil or table.find(WorldConfig.Maps, activity.Map) == nil then
 				report(`{where}: playable activities need a Map from WorldConfig.Maps`)
 			end
-			if #listOf(activity.Objectives) == 0 and #listOf(activity.Encounters) == 0 then
-				report(`{where}: playable activities need objectives or encounters`)
+			if zoneCount == 0 then
+				report(`{where}: playable activities need zones`)
 			end
 			if activity.Rewards == nil then
 				report(`{where}: playable activities need Rewards`)

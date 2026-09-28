@@ -10,15 +10,27 @@
 
 	Tier colors: Minor = red bar, Major = yellow bar, Boss = large yellow bar.
 
-	Boss Mechanics are an ordered list the encounter runner walks through:
-	  Immune      boss can't be damaged until Break happens
-	  DamagePhase a window of Duration seconds where the boss is vulnerable
-	  Adds        spawns Enemies (id + count) when health drops to AtHealth
-	  Enrage      after AfterSeconds the boss wipes the team (raid timer)
+	Roles pick the AI (EnemyService) and the rig (EnemyRigs):
+	  Melee    rushes in and swings after a short wind-up
+	  Ranged   strafes at PreferredRange, fires dodgeable bolts, takes cover
+	  Caster   like Ranged (Veiled/Concord flavour)
+	  Flying   a hovering drone that circles its target and strafes it
+	  Sniper   holds a long sightline; a red laser tracks you for
+	           CombatConfig.Enemies.SniperWindup seconds before the shot
+	  Turret   bolted down, swivels and fires rapid bursts
+	  Object   no AI (generators, pylons): something to shoot at
+
+	Bosses: health is CAPTAIN_HEALTH (a Rustbreaker captain) times 15-30;
+	their fight (immune phases, attacks, adds) is scripted in BossConfig.
+	Mechanics below are the older, descriptive list shown for bosses of
+	activities that aren't built yet.
 ]]
 
 local TableUtil = require(script.Parent.Parent.Util.TableUtil)
 local Types = require(script.Parent.Parent.Types)
+
+-- Health of a captain (Rustbreaker). Bosses are tuned as a multiple of it.
+local CAPTAIN_HEALTH = 900
 
 export type MechanicDef = {
 	Kind: "Immune" | "DamagePhase" | "Adds" | "Enrage",
@@ -35,7 +47,7 @@ export type EnemyDef = {
 	Name: string,
 	Faction: string,
 	Tier: Types.EnemyTier,
-	Role: "Melee" | "Ranged" | "Caster" | "Flying",
+	Role: "Melee" | "Ranged" | "Caster" | "Flying" | "Sniper" | "Turret" | "Object",
 	Health: number,
 	Damage: number,
 	AttackRange: number,
@@ -163,7 +175,7 @@ local List: { EnemyDef } = {
 		Faction = "Rustborn",
 		Tier = "Major",
 		Role = "Ranged",
-		Health = 900,
+		Health = CAPTAIN_HEALTH,
 		Damage = 18,
 		AttackRange = 70,
 		AttackCooldown = 1.4,
@@ -175,6 +187,94 @@ local List: { EnemyDef } = {
 		Projectile = { Speed = 85 },
 		Behavior = { AggroRange = 110, PreferredRange = 25, UsesCover = true },
 		Model = "Rustborn_Breaker",
+	},
+	{
+		Id = "RUST_SNIPER",
+		Name = "Longshot",
+		Faction = "Rustborn",
+		Tier = "Minor",
+		Role = "Sniper",
+		Health = 150,
+		Damage = 34,
+		AttackRange = 240,
+		AttackCooldown = 4.5,
+		MoveSpeed = 10,
+		Flying = false,
+		CritSpot = 1.8,
+		Projectile = { Speed = 700 },
+		Behavior = { AggroRange = 240, PreferredRange = 90, UsesCover = true },
+		Model = "Rustborn_Longshot",
+	},
+	{
+		Id = "RUST_TURRET",
+		Name = "Scrap Turret",
+		Faction = "Rustborn",
+		Tier = "Minor",
+		Role = "Turret",
+		Health = 420,
+		Damage = 5,
+		AttackRange = 130,
+		AttackCooldown = 2.2,
+		MoveSpeed = 0,
+		Flying = false,
+		CritSpot = 1.5,
+		Projectile = { Speed = 170 },
+		Behavior = { AggroRange = 130, PreferredRange = 0, UsesCover = false },
+		Model = "Rustborn_Turret",
+	},
+	{
+		Id = "RUST_GENERATOR",
+		Name = "Shield Generator",
+		Title = "Destroy it",
+		Faction = "Rustborn",
+		Tier = "Major",
+		Role = "Object",
+		Health = 1500,
+		Damage = 0,
+		AttackRange = 0,
+		AttackCooldown = 1,
+		MoveSpeed = 0,
+		Flying = false,
+		CritSpot = 1.5,
+		Behavior = { AggroRange = 0, PreferredRange = 0, UsesCover = false },
+		Model = "Rustborn_Generator",
+	},
+	{
+		Id = "RUST_PYLON",
+		Name = "Ward Pylon",
+		Title = "Feeds the boss's shield",
+		Faction = "Rustborn",
+		Tier = "Major",
+		Role = "Object",
+		Health = 1000,
+		Damage = 0,
+		AttackRange = 0,
+		AttackCooldown = 1,
+		MoveSpeed = 0,
+		Flying = false,
+		CritSpot = 1.5,
+		Behavior = { AggroRange = 0, PreferredRange = 0, UsesCover = false },
+		Model = "Rustborn_Pylon",
+	},
+	{
+		Id = "RUST_SCRAP_WARDEN",
+		Name = "Orrek, the Scrap Warden",
+		Title = "Warden of the Reactor",
+		Faction = "Rustborn",
+		Tier = "Boss",
+		Role = "Ranged",
+		Health = CAPTAIN_HEALTH * 18,
+		Damage = 12,
+		AttackRange = 90,
+		AttackCooldown = 1.3,
+		MoveSpeed = 11,
+		Flying = false,
+		CritSpot = 1.5,
+		Scale = 2,
+		Shield = { Element = "Flare", Amount = 1200 },
+		Projectile = { Speed = 80 },
+		Behavior = { AggroRange = 160, PreferredRange = 32, UsesCover = false },
+		Model = "Rustborn_ScrapWarden",
 	},
 	{
 		Id = "RUST_SCRAP_BARON",
@@ -244,7 +344,7 @@ local List: { EnemyDef } = {
 		Faction = "Rustborn",
 		Tier = "Boss",
 		Role = "Ranged",
-		Health = 12000,
+		Health = CAPTAIN_HEALTH * 16,
 		Damage = 22,
 		AttackRange = 95,
 		AttackCooldown = 1.3,
@@ -282,8 +382,8 @@ local List: { EnemyDef } = {
 		Faction = "Rustborn",
 		Tier = "Boss",
 		Role = "Ranged",
-		-- Tuned for six players; scaled down for smaller fireteams (CombatConfig.Raid).
-		Health = 60000,
+		-- Solo health; each extra Keeper adds CombatConfig.PartyScaling.BossHealthPerExtraPlayer.
+		Health = CAPTAIN_HEALTH * 30,
 		Damage = 24,
 		AttackRange = 130,
 		AttackCooldown = 1.4,
@@ -774,6 +874,7 @@ for _, enemy in List do
 end
 
 return TableUtil.DeepFreeze({
+	CaptainHealth = CAPTAIN_HEALTH,
 	Factions = Factions,
 	Tiers = Tiers,
 	AI = AI,

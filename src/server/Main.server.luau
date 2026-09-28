@@ -38,6 +38,7 @@ local order: { { Name: string, Module: Service } } = {
 	{ Name = "WeaponService", Module = require(Services.WeaponService) :: any },
 	{ Name = "LootService", Module = require(Services.LootService) :: any },
 	{ Name = "InventoryService", Module = require(Services.InventoryService) :: any },
+	{ Name = "MissionService", Module = require(Services.MissionService) :: any },
 	{ Name = "ActivityService", Module = require(Services.ActivityService) :: any },
 	{ Name = "HubService", Module = require(Services.HubService) :: any },
 	{ Name = "DebugService", Module = require(Services.DebugService) :: any },

@@ -27,6 +27,7 @@ local Config = Shared:WaitForChild("Config")
 local ElementConfig = require(Config:WaitForChild("ElementConfig"))
 local RarityConfig = require(Config:WaitForChild("RarityConfig"))
 local PowerMath = require(Shared:WaitForChild("Power"):WaitForChild("PowerMath"))
+local MissionRules = require(Shared:WaitForChild("Activities"):WaitForChild("MissionRules"))
 
 local ClientNet = require(script.Parent.Parent.Net.ClientNet)
 local Theme = require(script.Parent.Parent.UI.Theme)
@@ -75,7 +76,9 @@ type Refs = {
 	BossHealthFill: Frame,
 	BossShieldFill: Frame,
 	BossTag: TextLabel,
+	BossTicks: Frame,
 	Phase: TextLabel,
+	ZoneDebug: TextLabel,
 	ChargeBar: Frame,
 	ChargeFill: Frame,
 	Banner: TextLabel,
@@ -91,6 +94,8 @@ local deathStatus: { Alive: boolean, RespawnAt: number?, Message: string } = { A
 local grey: ColorCorrectionEffect? = nil
 local waypointPart: Part? = nil
 local waypointLabel: TextLabel? = nil
+local shownThresholds = ""
+local IS_STUDIO = RunService:IsStudio()
 
 local function fmtTime(seconds: number): string
 	seconds = math.max(0, math.floor(seconds))
@@ -325,27 +330,48 @@ local function build()
 		TextStrokeTransparency = 0.6,
 	}, tracker)
 
+	-- Studio only: how long each zone took (tune missions to 5-10 minutes).
+	local zoneDebug = UI.Label({
+		Name = "ZoneDebug",
+		Position = UDim2.new(0, 24, 0.3, 170),
+		Size = UDim2.fromOffset(300, 150),
+		TextSize = Theme.TextSize.Small,
+		TextColor3 = Color3.fromRGB(150, 255, 170),
+		TextWrapped = true,
+		RichText = true,
+		TextYAlignment = Enum.TextYAlignment.Top,
+		TextStrokeTransparency = 0.5,
+		Visible = false,
+	}, gui)
+
 	-- Boss bar (top center).
 	local bossFrame = UI.Make("Frame", {
 		Name = "Boss",
 		AnchorPoint = Vector2.new(0.5, 0),
-		Position = UDim2.new(0.5, 0, 0, 44),
-		Size = UDim2.new(0.5, 0, 0, 44),
+		Position = UDim2.new(0.5, 0, 0, 40),
+		Size = UDim2.new(0.62, 0, 0, 66),
 		BackgroundTransparency = 1,
 		Visible = false,
 	}, gui) :: Frame
 	local bossName = UI.Label({
-		Size = UDim2.new(1, 0, 0, 20),
+		Size = UDim2.new(1, 0, 0, 28),
 		Font = Theme.Fonts.Title,
-		TextSize = 17,
+		TextSize = 24,
 		TextXAlignment = Enum.TextXAlignment.Center,
-		TextStrokeTransparency = 0.4,
+		TextStrokeTransparency = 0.3,
 		RichText = true,
 	}, bossFrame)
 	local bossBack, bossHealthFill = bar(bossFrame, {
-		Size = UDim2.new(1, 0, 0, 12),
-		Position = UDim2.fromOffset(0, 24),
+		Size = UDim2.new(1, 0, 0, 18),
+		Position = UDim2.fromOffset(0, 32),
 	}, BOSS_COLOR)
+	-- Tick marks at the boss's immune thresholds (BossThresholds attribute).
+	local bossTicks = UI.Make("Frame", {
+		Name = "Ticks",
+		Size = UDim2.fromScale(1, 1),
+		BackgroundTransparency = 1,
+		ZIndex = 3,
+	}, bossBack) :: Frame
 	local bossShieldFill = UI.Make("Frame", {
 		BackgroundColor3 = Color3.fromRGB(255, 140, 60),
 		BorderSizePixel = 0,
@@ -354,7 +380,7 @@ local function build()
 	}, bossBack) :: Frame
 	local bossTag = UI.Label({
 		AnchorPoint = Vector2.new(0.5, 0),
-		Position = UDim2.new(0.5, 0, 0, 40),
+		Position = UDim2.new(0.5, 0, 0, 56),
 		Size = UDim2.new(1, 0, 0, 16),
 		Font = Theme.Fonts.Title,
 		TextSize = 14,
@@ -367,7 +393,7 @@ local function build()
 	local phase = UI.Label({
 		Name = "Phase",
 		AnchorPoint = Vector2.new(0.5, 0),
-		Position = UDim2.new(0.5, 0, 0, 108),
+		Position = UDim2.new(0.5, 0, 0, 124),
 		Size = UDim2.new(0.6, 0, 0, 24),
 		Font = Theme.Fonts.Title,
 		TextSize = 20,
@@ -378,7 +404,7 @@ local function build()
 	}, gui)
 	local chargeBar, chargeFill = bar(gui, {
 		AnchorPoint = Vector2.new(0.5, 0),
-		Position = UDim2.new(0.5, 0, 0, 136),
+		Position = UDim2.new(0.5, 0, 0, 152),
 		Size = UDim2.fromOffset(260, 6),
 		Visible = false,
 	}, Color3.fromRGB(140, 235, 255))
@@ -481,7 +507,9 @@ local function build()
 		BossHealthFill = bossHealthFill,
 		BossShieldFill = bossShieldFill,
 		BossTag = bossTag,
+		BossTicks = bossTicks,
 		Phase = phase,
+		ZoneDebug = zoneDebug,
 		ChargeBar = chargeBar,
 		ChargeFill = chargeFill,
 		Banner = banner,
@@ -708,6 +736,7 @@ local function updateActivity()
 	if not info.InActivity or folder == nil then
 		refs.Tracker.Visible = false
 		refs.BossFrame.Visible = false
+		refs.ZoneDebug.Visible = false
 		refs.Phase.Visible = false
 		refs.ChargeBar.Visible = false
 		refs.Banner.Visible = false
@@ -770,8 +799,51 @@ local function updateActivity()
 		refs.BossName.Text = `{string.upper(tostring(attr("BossName") or ""))}`
 			.. (if bossTitle ~= "" then `  <font size="13" color="#C8C8C8">{bossTitle}</font>` else "")
 		refs.BossHealthFill.Size = UDim2.fromScale(math.clamp(health / maxHealth, 0, 1), 1)
+		local immune = attr("BossImmune") == true
+		refs.BossHealthFill.BackgroundColor3 = if immune then Color3.fromRGB(150, 150, 160) else BOSS_COLOR
 		refs.BossShieldFill.Size = UDim2.new(if maxShield > 0 then math.clamp(shield / maxShield, 0, 1) else 0, 0, 0, 4)
-		refs.BossTag.Text = if attr("BossImmune") == true then "IMMUNE" else ""
+		refs.BossTag.Text = if immune then "IMMUNE" else ""
+		local thresholds = tostring(attr("BossThresholds") or "")
+		if thresholds ~= shownThresholds then
+			shownThresholds = thresholds
+			refs.BossTicks:ClearAllChildren()
+			for _, value in string.split(thresholds, ",") do
+				local at = tonumber(value)
+				if at then
+					UI.Make("Frame", {
+						AnchorPoint = Vector2.new(0.5, 0),
+						Position = UDim2.fromScale(at, 0),
+						Size = UDim2.new(0, 3, 1, 0),
+						BackgroundColor3 = Color3.new(1, 1, 1),
+						BackgroundTransparency = 0.2,
+						BorderSizePixel = 0,
+					}, refs.BossTicks)
+				end
+			end
+		end
+	end
+
+	-- Studio: zone timing.
+	refs.ZoneDebug.Visible = IS_STUDIO
+	if IS_STUDIO then
+		local lines = { "<b>ZONE TIMES (Studio)</b>" }
+		local total = 0
+		for _, entry in MissionRules.ParseZoneLog(tostring(attr("ZoneLog") or "")) do
+			total += entry.Seconds
+			table.insert(lines, `{entry.Name}  {MissionRules.FormatTime(entry.Seconds)}`)
+		end
+		local zoneName = attr("ZoneName")
+		local zoneStart = tonumber(attr("ZoneStartedAt"))
+		if status == "Active" and type(zoneName) == "string" and zoneStart then
+			local current = serverNow - zoneStart
+			table.insert(lines, `▶ {zoneName}  {MissionRules.FormatTime(current)}`)
+			total += current
+		end
+		table.insert(
+			lines,
+			`Total {MissionRules.FormatTime(total)}  ·  zone {attr("ZoneIndex") or "?"}/{attr("ZoneCount") or "?"}`
+		)
+		refs.ZoneDebug.Text = table.concat(lines, "\n")
 	end
 
 	-- Phase banner.

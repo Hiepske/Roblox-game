@@ -15,7 +15,8 @@
 	  /god                   toggle taking no damage
 	  /resetweek             reset weekly rewards (Powerful/Pinnacle again)
 	  /wipe                  wipe your save and start over at 350
-	  /skip                  skip the current objective
+	  /skip                  skip the current objective (step)
+	  /zone <n>              jump to zone n of the current activity
 	  /heavy                 drop a heavy ammo box
 	  /kill                  die (test respawns)
 	  /leave                 return to the hub
@@ -76,6 +77,18 @@ local commands: { Command } = {
 	{ Alias = "/resetweek", Server = "ExpireResets", Usage = "/resetweek" },
 	{ Alias = "/wipe", Server = "ResetProfile", Usage = "/wipe" },
 	{ Alias = "/skip", Server = "Skip", Usage = "/skip" },
+	{
+		Alias = "/zone",
+		Usage = "/zone 3",
+		Run = function(args)
+			local value = tonumber(args[1])
+			if value == nil then
+				HudController.Toast("Usage: /zone <number>", "Error")
+				return
+			end
+			send("Zone", nil, value)
+		end,
+	},
 	{ Alias = "/heavy", Server = "Heavy", Usage = "/heavy" },
 	{ Alias = "/kill", Server = "Kill", Usage = "/kill" },
 	{ Alias = "/leave", Server = "Leave", Usage = "/leave" },

@@ -1,6 +1,7 @@
--- Integration test for ActivityService: the objective runner, checkpoints,
--- doors, boss mechanics, deaths, revives, wipes and completion, with the
--- other services replaced by fakes and a virtual clock driving time.
+-- Integration test for ActivityService + MissionService: the zone flow
+-- (waves, checkpoints, gates), boss fights (immune phases, attacks, the
+-- raid's plates), deaths, revives, wipes and the loot chest, with the other
+-- services replaced by fakes and a virtual clock driving time.
 local roblox = require("@lune/roblox")
 local realTask = require("@lune/task")
 local Proxy = VirtualGame.Proxy
@@ -44,6 +45,21 @@ end
 
 VirtualGame.SetGlobal("task", fakeTask)
 VirtualGame.SetGlobal("Instance", Proxy.Instance)
+VirtualGame.SetGlobal("RaycastParams", {
+	new = function()
+		return {}
+	end,
+})
+VirtualGame.SetGlobal("TweenInfo", {
+	new = function()
+		return {}
+	end,
+})
+VirtualGame.Services.TweenService = {
+	Create = function()
+		return { Play = function() end }
+	end,
+}
 
 -- Fakes --------------------------------------------------------------------------------
 
@@ -60,6 +76,9 @@ VirtualGame.Services.TeleportService = {}
 VirtualGame.Services.Workspace = {
 	GetServerTimeNow = function()
 		return clock
+	end,
+	Raycast = function()
+		return nil
 	end,
 }
 
@@ -120,6 +139,7 @@ function FakeCharacters.GetCharacter(player)
 			if name == "HumanoidRootPart" then
 				return {
 					Position = state.Position,
+					CFrame = CFrame.new(state.Position),
 					IsA = function(_, className)
 						return className == "BasePart"
 					end,
@@ -137,6 +157,11 @@ function FakeCharacters.Teleport(player, cframe)
 	chars[player].Position = cframe.Position
 end
 function FakeCharacters.HealFull() end
+local damageTaken = {}
+function FakeCharacters.DamagePlayer(player, amount)
+	damageTaken[player] = (damageTaken[player] or 0) + amount
+	return amount
+end
 function FakeCharacters.SendStatus(player, status)
 	statuses[player] = status
 end
@@ -177,8 +202,11 @@ function FakeEnemies.Spawn(defId, cframe, options)
 		InstanceId = options.InstanceId,
 		Tag = options.Tag,
 		Options = options,
+		HealthFloor = 0,
+		DamageScale = options.DamageScale or 1,
 		Root = { Position = cframe.Position },
 	}
+	enemy.Head = enemy.Root
 	table.insert(enemies, enemy)
 	return enemy
 end
@@ -204,6 +232,25 @@ end
 function FakeEnemies.SetEnraged(enemy, enraged)
 	enemy.Enraged = enraged
 end
+function FakeEnemies.SetHealthFloor(enemy, floor)
+	enemy.HealthFloor = floor
+end
+function FakeEnemies.SetBusy() end
+local volleys = 0
+function FakeEnemies.FireVolley()
+	volleys += 1
+end
+function FakeEnemies.Relocate(enemy, cframe)
+	enemy.Root.Position = cframe.Position
+end
+local leaps = 0
+function FakeEnemies.Leap(enemy, landing)
+	leaps += 1
+	enemy.Root.Position = landing
+end
+function FakeEnemies.Despawn(enemy)
+	enemy.Dead = true
+end
 VirtualGame.Preload(Server.Services.EnemyService, FakeEnemies)
 
 local function kill(enemy)
@@ -228,6 +275,7 @@ end
 
 -- Loot, weapons, network, world
 local completions = {}
+local ammoDrops = 0
 VirtualGame.Preload(Server.Services.LootService, {
 	SetInstanceResolver = function() end,
 	ClearInstance = function() end,
@@ -235,13 +283,21 @@ VirtualGame.Preload(Server.Services.LootService, {
 		table.insert(completions, { Player = player, Info = info })
 		return {}
 	end,
+	DropAmmo = function()
+		ammoDrops += 1
+	end,
 })
 VirtualGame.Preload(Server.Services.WeaponService, { ResetAmmo = function() end })
 local sent = {}
+local cues = {}
 VirtualGame.Preload(Server.Services.NetService, {
 	OnInvoke = function() end,
 	OnEvent = function() end,
-	FireClient = function(player, name, payload)
+	FireClient = function(player, name, payload, ...)
+		if name == "WorldCue" then
+			cues[payload] = (cues[payload] or 0) + 1
+			return
+		end
 		table.insert(sent, { Player = player, Name = name, Payload = payload })
 	end,
 	Notify = function() end,
@@ -266,6 +322,9 @@ VirtualGame.Preload(Server.Services.WorldService, {
 	end,
 	GetHubMarker = function()
 		return nil
+	end,
+	PlayerCharacters = function()
+		return {}
 	end,
 })
 
@@ -292,6 +351,15 @@ local function near(a, b, tolerance)
 	return (a - b).Magnitude <= (tolerance or 4)
 end
 
+local function marker(run, name)
+	return run.Markers.ByName[name]
+end
+
+-- Lets rifts and dropships deliver their enemies.
+local function arrive()
+	advance(3.5)
+end
+
 -- Tests ---------------------------------------------------------------------------------
 
 describe("Story mission: First Light", function()
@@ -304,34 +372,62 @@ describe("Story mission: First Light", function()
 		expect(ok).toBe(true)
 		run = ActivityService.GetRun(player)
 		expect(player:GetAttribute("InstanceId")).toBe(run.Id)
-		expect(near(chars[player].Position, run.Markers.PlayerStart.Position, 3)).toBe(true)
+		expect(near(chars[player].Position, marker(run, "PlayerStart").Position, 3)).toBe(true)
 		advance(0.5)
-		expect(run.Index).toBe(1)
+		expect(run.ZoneIndex).toBe(1)
+		expect(run.Folder:GetAttribute("ZoneName")).toBe("The Approach")
 		expect(run.Folder:GetAttribute("ObjectiveText")).toBe("Reach the outpost")
 		expect(run.Folder:GetAttribute("HasWaypoint")).toBe(true)
 	end)
 
-	it("completes travel when a player reaches the zone and moves the checkpoint", function()
-		moveTo(player, run.Markers.Zone_Outpost.Position)
+	it("clears the approach when a player reaches the outpost and moves the checkpoint", function()
+		moveTo(player, marker(run, "Zone_Outpost").Position)
 		advance(0.5)
-		expect(run.Index).toBe(2)
+		expect(run.ZoneIndex).toBe(2)
+		expect(run.Folder:GetAttribute("ZoneName")).toBe("Outpost Courtyard")
 		expect(run.Checkpoint).toBe("Checkpoint_Outpost")
+		expect(run.Folder:GetAttribute("ZoneLog")).toBe("The Approach=1")
 	end)
 
-	it("needs all twelve courtyard enemies, including the delayed wave", function()
-		expect(#alive(run.Id)).toBe(10)
-		expect(run.Folder:GetAttribute("ObjectiveCount")).toBe("0/12")
-		killAll(run.Id)
-		advance(1)
-		expect(run.Index).toBe(2) -- the back wave hasn't arrived yet
-		expect(run.Folder:GetAttribute("ObjectiveCount")).toBe("10/12")
-		advance(8)
-		expect(#alive(run.Id)).toBe(2)
+	it("brings the first wave in through rifts", function()
+		expect(#alive(run.Id)).toBe(0) -- still stepping out of the rifts
+		expect((cues.Portal or 0) > 0).toBe(true)
+		arrive()
+		expect(#alive(run.Id)).toBe(7)
+		expect(run.Folder:GetAttribute("ObjectiveCount")).toBe("0/14")
+		expect(run.Folder:GetAttribute("Wave")).toBe("1/3")
+	end)
+
+	it("sends the next wave at 80% cleared, by dropship", function()
+		local list = alive(run.Id)
+		for index = 1, 5 do
+			kill(list[index])
+		end
+		advance(0.5)
+		expect(run.Folder:GetAttribute("Wave")).toBe("1/3") -- 5 of 7 isn't 80% yet
+		kill(list[6])
+		advance(0.5)
+		expect(run.Folder:GetAttribute("Wave")).toBe("2/3")
+		expect(cues.Dropship).toBe(1)
+		arrive()
+		local kinds = {}
+		for _, enemy in alive(run.Id) do
+			kinds[enemy.Def.Id] = (kinds[enemy.Def.Id] or 0) + 1
+		end
+		expect(kinds.RUST_SKIFF_DRONE).toBe(2)
+		expect(kinds.RUST_SNIPER).toBe(1)
+	end)
+
+	it("sends the last wave on the timer and opens the gate when every wave is dead", function()
+		advance(46)
+		expect(run.Folder:GetAttribute("Wave")).toBe("3/3")
+		arrive()
 		killAll(run.Id)
 		advance(0.5)
-		expect(run.Index).toBe(3)
+		expect(run.ZoneIndex).toBe(3)
 		expect(run.Checkpoint).toBe("Checkpoint_Terminal")
 		expect(run.Map.Doors.Door_Terminal.CanCollide).toBe(false)
+		expect(cues.GateOpen).toBe(1)
 	end)
 
 	it("respawns a dead player at the checkpoint after 5 seconds", function()
@@ -341,41 +437,86 @@ describe("Story mission: First Light", function()
 		expect(FakeCharacters.IsAlive(player)).toBe(false)
 		advance(1.5)
 		expect(FakeCharacters.IsAlive(player)).toBe(true)
-		expect(near(chars[player].Position, run.Markers.Checkpoint_Terminal.Position)).toBe(true)
+		expect(near(chars[player].Position, marker(run, "Checkpoint_Terminal").Position)).toBe(true)
+		expect(run.Folder:GetAttribute("Deaths_" .. player.UserId)).toBe(1)
 	end)
 
 	it("hacks the terminal only while someone stands in the zone", function()
 		advance(5)
-		expect(run.Index).toBe(3) -- not in the zone yet
+		expect(run.ZoneIndex).toBe(3) -- not in the zone yet
 		expect(#alive(run.Id) > 0).toBe(true) -- waves attack the terminal
-		moveTo(player, run.Markers.Zone_Terminal.Position)
-		advance(10)
-		expect(run.Index).toBe(3)
-		advance(11)
-		expect(run.Index).toBe(4)
+		moveTo(player, marker(run, "Zone_Terminal").Position)
+		advance(30)
+		expect(run.ZoneIndex).toBe(3)
+		advance(16)
+		expect(run.ZoneIndex).toBe(4)
 		expect(run.Map.Doors.Door_Boss.CanCollide).toBe(false)
 	end)
 
-	it("spawns the boss, calls adds at half health, and completes on the kill", function()
-		killAll(run.Id, "obj") -- leftover terminal waves
+	it("fights the Scrap Warden: 15-30 captains of health, attacks and arena ammo", function()
+		killAll(run.Id, "z3") -- leftover terminal waves
 		advance(0.5)
 		local boss = alive(run.Id, "boss")[1]
-		expect(boss.Def.Id).toBe("RUST_SCRAP_BARON")
+		expect(boss.Def.Id).toBe("RUST_SCRAP_WARDEN")
+		local captains = boss.Def.Health / EnemyConfig.CaptainHealth
+		expect(captains >= 15 and captains <= 30).toBe(true)
 		expect(run.Folder:GetAttribute("BossActive")).toBe(true)
-		boss.Health = boss.MaxHealth * 0.45
+		expect(boss.HealthFloor).toBe(boss.MaxHealth * 0.66)
+		advance(25)
+		expect(volleys > 0).toBe(true) -- barrage
+		expect(leaps > 0).toBe(true) -- slam
+		expect((cues.Telegraph or 0) > 0).toBe(true)
+		expect(ammoDrops > 0).toBe(true)
+	end)
+
+	it("turns immune at 66% until two waves of its guard are dead", function()
+		killAll(run.Id, "bossAdds")
+		local boss = alive(run.Id, "boss")[1]
+		boss.Health = boss.MaxHealth * 0.66
 		advance(0.5)
-		expect(#alive(run.Id, "bossAdds")).toBe(6)
+		expect(boss.Immune).toBe(true)
+		expect(run.Folder:GetAttribute("BossImmune")).toBe(true)
+		expect(boss.HealthFloor).toBe(boss.MaxHealth * 0.33)
+		arrive()
+		expect(#alive(run.Id, "bossImmune1")).toBe(6)
+		killAll(run.Id, "bossImmune1")
+		advance(0.5)
+		expect(boss.Immune).toBe(true) -- second wave
+		arrive()
+		killAll(run.Id, "bossImmune1")
+		advance(0.5)
+		expect(boss.Immune).toBe(false)
+	end)
+
+	it("turns immune again at 33%, then dies into a loot chest", function()
+		local boss = alive(run.Id, "boss")[1]
+		boss.Health = boss.MaxHealth * 0.3
+		advance(0.5)
+		expect(boss.Immune).toBe(true)
+		arrive()
+		killAll(run.Id, "bossImmune2")
+		advance(0.5)
+		expect(boss.Immune).toBe(false)
+		expect(boss.HealthFloor).toBe(0)
 		kill(boss)
 		advance(0.5)
+		expect(cues.BossDeath).toBe(1)
 		expect(run.Status).toBe("Complete")
-		expect(#completions).toBe(1)
-		expect(completions[1].Info.Activity.Id).toBe("STORY_01")
 		expect(profiles[player].Progress.StoryCompleted.STORY_01).toBe(true)
 		expect(profiles[player].Progress.ActivityClears.STORY_01).toBe(1)
+		expect(#completions).toBe(0) -- waiting in the chest
+		local chest = run.Map:FindFirstChild("RewardChest")
+		expect(chest ~= nil).toBe(true)
+		local prompt = chest:FindFirstChild("ClaimRewards", true)
+		prompt.Triggered:Fire(player)
+		prompt.Triggered:Fire(player)
+		expect(#completions).toBe(1)
+		expect(completions[1].Info.Activity.Id).toBe("STORY_01")
 	end)
 
 	it("returns the fireteam to the hub and cleans up", function()
-		advance(12.5)
+		advance(30.5)
+		expect(#completions).toBe(1) -- no double rewards
 		expect(player:GetAttribute("InstanceId")).toBeNil()
 		expect(ActivityService.GetRun(player)).toBeNil()
 		expect(run.Status).toBe("Closed")
@@ -402,26 +543,45 @@ describe("Nightfall: Hollow Spire", function()
 		expect(context.Effects ~= nil).toBe(true)
 	end)
 
-	it("makes Kaldrek immune at half health until his bodyguard dies", function()
-		for _ = 1, 4 do
-			ActivityService.SkipObjective(player)
-			advance(0.3)
-		end
+	it("jumps to a zone with /zone, opening the gates before it", function()
+		expect(ActivityService.JumpToZone(player, 3)).toBe(true)
+		advance(0.3)
+		expect(run.ZoneIndex).toBe(3)
+		expect(run.Map.Doors.Door_1.CanCollide).toBe(false)
+		expect(run.Map.Doors.Door_2.CanCollide).toBe(false)
+		expect(run.Map.Doors.Door_3.CanCollide).toBe(true)
+		expect(run.Checkpoint).toBe("Checkpoint_Arena3")
+		expect(near(chars[player].Position, marker(run, "Checkpoint_Arena3").Position)).toBe(true)
+		expect(run.Folder:GetAttribute("ZoneName")).toBe("The Lift")
+	end)
+
+	it("skips a step with /skip, opening the zone's gate", function()
+		ActivityService.SkipObjective(player)
+		advance(0.3)
+		expect(run.ZoneIndex).toBe(4)
+		expect(run.Map.Doors.Door_3.CanCollide).toBe(false)
+		expect(run.Checkpoint).toBe("Checkpoint_Boss")
+	end)
+
+	it("makes Kaldrek immune at 66% and 33% until his guards die", function()
 		local boss = alive(run.Id, "boss")[1]
 		expect(boss.Def.Id).toBe("RUST_KALDREK")
-		boss.Health = boss.MaxHealth * 0.49
-		advance(0.5)
-		expect(boss.Immune).toBe(true)
-		expect(run.Folder:GetAttribute("BossImmune")).toBe(true)
-		killAll(run.Id, "bossAdds")
-		advance(0.5)
-		expect(boss.Immune).toBe(false)
+		for _, threshold in { 0.6, 0.3 } do
+			boss.Health = boss.MaxHealth * threshold
+			advance(0.5)
+			expect(boss.Immune).toBe(true)
+			expect(run.Folder:GetAttribute("BossImmune")).toBe(true)
+			arrive()
+			killAll(run.Id, "bossImmune")
+			advance(0.5)
+			expect(boss.Immune).toBe(false)
+		end
 		kill(boss)
 		advance(0.5)
 		expect(run.Status).toBe("Complete")
-		expect(completions[#completions].Info.Difficulty.Id).toBe("Legend")
 		expect(run.Folder:GetAttribute("Score") > 0).toBe(true)
-		advance(13)
+		ActivityService.Leave(player)
+		expect(completions[#completions].Info.Difficulty.Id).toBe("Legend")
 	end)
 end)
 
@@ -432,12 +592,12 @@ describe("Raid: Vault of Echoes, solo", function()
 	it("scales the boss down for one Keeper and starts immune", function()
 		expect(ActivityService.Launch(player, "RAID_VAULT_OF_ECHOES", nil, true)).toBe(true)
 		run = ActivityService.GetRun(player)
-		moveTo(player, run.Markers.Zone_Chamber.Position)
+		moveTo(player, marker(run, "Zone_Chamber").Position)
 		advance(0.5)
 		boss = alive(run.Id, "boss")[1]
 		expect(boss.Def.Id).toBe("RUST_ECHO_ENGINE")
 		local healthScale = PowerMath.ActivityEnemyScale(495)
-		expect(math.abs(boss.MaxHealth - 60000 * healthScale / 6) < 1).toBe(true)
+		expect(math.abs(boss.MaxHealth - boss.Def.Health * healthScale) < 1).toBe(true)
 		expect(boss.Immune).toBe(true)
 		expect(run.Folder:GetAttribute("EnrageAt") > 0).toBe(true)
 	end)
@@ -451,7 +611,7 @@ describe("Raid: Vault of Echoes, solo", function()
 		advance(2.5)
 		expect(boss.Immune).toBe(false)
 		expect(CombatContext.Get(player).DamageBuff).toBe(1.25)
-		moveTo(player, run.Markers.Checkpoint_Chamber.Position)
+		moveTo(player, marker(run, "Checkpoint_Chamber").Position)
 		advance(20.5)
 		expect(boss.Immune).toBe(true)
 		expect(CombatContext.Get(player).DamageBuff).toBe(1)
@@ -489,11 +649,11 @@ describe("Raid: Vault of Echoes, fireteam", function()
 		local ok, err = ActivityService.Join(friend, run.Id)
 		expect(err).toBeNil()
 		expect(ok).toBe(true)
-		moveTo(leader, run.Markers.Zone_Chamber.Position)
+		moveTo(leader, marker(run, "Zone_Chamber").Position)
 		advance(0.5)
 		local boss = alive(run.Id, "boss")[1]
 		local healthScale = PowerMath.ActivityEnemyScale(495)
-		expect(math.abs(boss.MaxHealth - 60000 * healthScale * 2 / 6) < 1).toBe(true)
+		expect(math.abs(boss.MaxHealth - boss.Def.Health * healthScale * 1.6) < 1).toBe(true)
 	end)
 
 	it("needs two plates held at once for two Keepers", function()

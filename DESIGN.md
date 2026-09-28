@@ -32,7 +32,8 @@ Server services, in start order (later ones may use earlier ones):
 | WeaponService | loadouts, ammo, fire/reload/swap validation, gun models |
 | LootService | drops, ammo boxes, weekly milestones, activity rewards |
 | InventoryService | equip and dismantle |
-| ActivityService | activity instances, objectives, boss mechanics, deaths, the Director |
+| MissionService | the zone flow of every activity: zones, steps, waves, gates, checkpoints, boss fights, the loot chest (helpers in `server/Missions`) |
+| ActivityService | activity instances (map copy + terrain), players, deaths, wipes, rewards, the Director |
 | DebugService | developer commands |
 
 Cycles are avoided with injection: ActivityService installs resolvers into
@@ -294,6 +295,10 @@ Rigs are R15 models made from a HumanoidDescription colored per faction, decorat
 with parts (glowing eyes, helmet, shoulder pads, gun or blades, shield pack), scaled
 by `Scale`, and put in the `Enemies` collision group. Headshots are the head and
 anything named `Eye`/`Helmet`/`Crown`. If R15 creation fails a blocky R6 rig is built.
+Machines are built from parts with an anchored root (model attribute `Rig`): drones
+(`Flying` role) are orbs with rotors, turrets (`Turret`) sit on tripods, objects
+(`Object`: generators, pylons) are frames around a glowing core. Their `Head` (eye,
+sensor or core) is the crit spot.
 
 AI runs on the server every `CombatConfig.Enemies.TickInterval`:
 
@@ -305,54 +310,93 @@ AI runs on the server every `CombatConfig.Enemies.TickInterval`:
 | Attack | ranged: strafe and fire dodgeable bolts (bosses fire volleys); melee: wind up, then hit if still in reach |
 | Cover | ranged units hurt below half health run to a spot the target can't see |
 
+Roles with their own brains: **drones** circle their target at `PreferredRange`,
+hovering `DroneHover` studs up, moved every frame and firing bolts; **snipers** paint
+you with a red laser (a beam to a dot on you) that tracks for `SniperWindup` s, locks
+for the last `SniperLock` s, then fires one fast, heavy shot (step out of the beam);
+**turrets** swivel and fire `TurretBurst`-round bursts; **objects** do nothing.
+Boss scripts can pause the AI (`SetBusy`), move bosses (`Relocate`, `Leap`), fire
+volleys (`FireVolley`) and set a health floor so damage can't skip an immune phase.
+
 Health and damage scale with the activity's recommended power
 (`PowerMath.ActivityEnemyScale`), modifiers (Ironhide, Bloodlust, Overcharged
-Shields) and fireteam size (+50% health per extra player; raids are tuned for six and
-scaled down instead). Health bars are BillboardGuis: red minors, yellow majors and
+Shields) and fireteam size (`CombatConfig.PartyScaling`: +25% health per extra
+player for regular enemies, +60% for bosses, and +35% more enemies per wave). Health bars are BillboardGuis: red minors, yellow majors and
 bosses with name and title, and `[IMMUNE]` when immune. Dummies never die and refill
 after 3 seconds.
 
-## 7. Activities (`ActivityService`, `ActivityConfig`, `Activities/ActivityRules.luau`)
+## 7. Activities (`ActivityService`, `MissionService`, `ActivityConfig`, `BossConfig`)
 
 ### Instances
 
 With `GameConfig.Activities.USE_RESERVED_SERVERS = false` (default, works in Studio)
 each launch clones the map template from `ServerStorage.Activities` into
 `Workspace.Instances` at `X = InstanceSpacing × slot` (5000, 10000, ...; up to
-`MaxInstances`), tags players with `InstanceId`, and teleports them to `PlayerStart`.
-Enemies, projectiles, ammo boxes and damage only interact within one instance. When
-everyone leaves or `ReturnToHubDelay` passes after completion, the copy is destroyed.
-With the flag on, `Launch` reserves a server for `AssetIds.Places[activity.Place]` and
-teleports the player with `{ ActivityId, DifficultyId }` as teleport data; the
-reserved server launches or joins that activity when the player arrives.
+`MaxInstances`), fills in the map's terrain there (`MapKit.ApplyTerrain`), tags
+players with `InstanceId`, and teleports them to `PlayerStart`. Enemies, projectiles,
+ammo boxes and damage only interact within one instance. When everyone leaves or
+`ReturnToHubDelay` passes after completion, the terrain is cleared and the copy is
+destroyed. With the flag on, `Launch` reserves a server for
+`AssetIds.Places[activity.Place]` and teleports the player with
+`{ ActivityId, DifficultyId }` as teleport data; the reserved server launches or joins
+that activity when the player arrives.
 
 The HUD reads live state from attributes on `ReplicatedStorage.LiveRuns.<runId>`:
-`ObjectiveText/Count/Progress`, `Waypoint`, `BossName/Health/Shield/Immune`, `Phase`,
-`PhaseEndsAt`, `Charge`, `EnrageAt`, `Score`, `StartedAt`, `Status`, `ReturnAt`.
+`ObjectiveText/Count/Progress`, `Waypoint`, `Wave`, `ZoneName/ZoneIndex/ZoneCount/
+ZoneStartedAt/ZoneLog`, `BossName/Health/Shield/Immune/Thresholds`, `Phase`,
+`PhaseEndsAt`, `Charge`, `EnrageAt`, `Score`, `StartedAt`, `Status`, `ReturnAt`,
+`Elapsed`, `Kills_<userId>`/`Deaths_<userId>`.
 
-### Objectives
+### Zones (`MissionService`, `MissionRules.ZoneList`)
 
-`ActivityRules.ObjectiveList` flattens an activity's objectives (or its playable raid
-encounters' objectives). The runner walks them in order:
+Every playable activity is a list of **zones** (raids: each playable encounter's
+zones, in order). Entering a zone moves the respawn checkpoint to its `Checkpoint`
+(default: the marker `CP_<zone Id>`) and pops its `Name` up on screen; clearing it
+logs its time (the Studio HUD lists every zone's time), opens its gate (`Gate`,
+default `Gate_<zone Id>`: a Door slides up, a Shield fades, a Bridge turns solid) and,
+for the last zone of a raid encounter, records the encounter as cleared. Falling below
+the map's `KillY` attribute puts you back at the checkpoint (jumping puzzles).
+
+A zone's **steps** run in order (`server/Missions/Steps.luau`):
 
 | Kind | Completes when |
 |------|----------------|
-| Travel | a living player is inside the `Target` zone marker |
-| Defeat | every enemy from `Spawns` (including delayed groups) is dead |
-| Defend | players have stood in the `Target` zone for `Duration` seconds (paused while it's empty); a wave from `Spawns` arrives every `WaveInterval` while fewer than `MaxAlive` live |
-| Boss | the boss dies; `Mechanic` decides the fight (below) |
+| Travel | a living player is inside the `Target` marker box |
+| Waves | every wave is dead; the next wave comes when `Advance` (0.8) of the current one is down or after `Timer` (45) s, and waits while `Missions.MaxAlive` enemies live |
+| Defend | players have stood in `Target` for `Duration` s (paused while it's empty); waves keep coming every `WaveInterval` |
+| Survive | `Duration` s have passed with someone alive; waves keep coming |
+| Destroy | the `Count` objects (default Shield Generator) at markers `<Target>_1..n` are destroyed; waves keep coming |
+| Interact | someone held E at the `Target` console |
+| Boss | the boss is dead (below) |
 
-After each objective the checkpoint moves to `Checkpoint` and the part `Door` opens.
+Waves (`Wave({ ENEMY_ID = count }, arrival?, spawnsFolder?)`) spawn at the
+`EnemySpawns/<Spawns>` markers (default folder: the zone's Id), preferring points no
+player can see and at least `SpawnMinDistance` away. **Portal** waves step out of
+rifts after `PortalDelay`; **Dropship** waves are dropped from a ship that flies in
+over one point (`DropshipDelay`); **Ambush** waves appear silently. Counts are for one
+player and grow with the fireteam.
 
-Boss mechanics use the enemy's `Mechanics` list:
+### Bosses (`BossConfig`, `server/Missions/BossFight.luau`)
 
-- **Standard**: each `Adds` entry spawns at its health threshold.
-- **ImmuneAdds**: at the `Immune` threshold the boss turns immune and its adds spawn;
-  immunity ends when those adds are dead.
-- **EchoPlates** (raid): immune until `min(3, fireteam size)` plates are held at once
-  for `PlateChargeSeconds` (solo: one plate for `SoloPlateHoldSeconds`), then a
-  `DamagePhaseSeconds` window with `DamageBuff`; adds every `AddsInterval`; at
-  `EnrageSeconds` the team is wiped and the encounter restarts.
+Boss health is 15-30 captains (`EnemyConfig.CaptainHealth` = a Rustbreaker), checked
+by the validator. The HUD shows a big bar with ticks at the immune thresholds.
+
+- **Immune phases** at each `Immune[].At` (0.66, 0.33): damage can't push the boss
+  past the threshold; there it raises a shield bubble until the break is done
+  (`Adds`: kill `Waves` waves of `Enemies`; `Pylons`: destroy the object enemies at
+  `Pylon_1..n`). `Collapse` makes part of the floor flash and fall.
+- **Attacks** on cooldowns, only one at a time: `Barrage` (wind-up glow, then a spray
+  of bolts at everyone), `Slam` (a red circle under a player fills up for `Windup` s,
+  then the boss leaps onto it), `Teleport` (to `Teleport_n`), `Nova` (only the lit
+  `Safe_n` circles survive).
+- **Adds** trickle in every `Adds.Interval` s; **heavy ammo** drops at `Ammo_n` every
+  `HeavyAmmoEvery` s; raid bosses **enrage** after `Enrage.After` s (wipe).
+- **EchoPlates** (raid encounter 1) replaces the loop: immune until
+  `min(3, fireteam size)` plates are held at once for `PlateChargeSeconds` (solo: one
+  plate for `SoloPlateHoldSeconds`), then a `DamagePhaseSeconds` window with
+  `DamageBuff`.
+- **Death**: a chain of explosions with a second of slow motion on every client, the
+  remaining enemies fall, and the loot chest appears where the boss died.
 
 ### Deaths
 
@@ -376,6 +420,9 @@ under `Score.ParSeconds`.
 
 ### Rewards (`LootService.AwardCompletion`)
 
+Rewards come from the loot chest (or the `Chest` marker): opening it claims them;
+anything unclaimed is sent when the fireteam returns to the hub (or leaves).
+
 | Activity | Rewards |
 |----------|---------|
 | First Light | 2-3 drops, Rare 60 / Epic 40, World power (+0..+5 below 450) |
@@ -385,7 +432,7 @@ under `Score.ParSeconds`.
 Enemy kills can also drop gear (`LootConfig.EnemyGearChance`, bosses excluded) and
 heavy ammo boxes (`LootConfig.AmmoDrops`, × the Scarcity modifier).
 
-## 8. Maps (`server/Maps`)
+## 8. Maps (`server/MapBuilders`)
 
 Maps are built in code with `MapKit` (blocks, rooms with door gaps, ramps, neon trim,
 lights, signs) so the repository needs no binary files. Each map is a Model with three
@@ -455,26 +502,27 @@ automatically. Exotic armor goes in `Exotics` with a `ClassRestriction` and an
 `ExoticArmor` perk.
 
 ### A new mission
-1. Build a map: a module in `server/Maps` returning `Build(): Model` (copy
-   `FirstLight.luau`), with `PlayerStart`, zones, checkpoints, spawn groups, doors and a
-   `BossSpawn`. Register it in `WorldConfig.Maps` and `WorldService`'s `MapBuilders`,
-   and add a lighting preset in `WorldConfig.Lighting`.
+1. Build a map: a module `server/MapBuilders/<Name>Builder.luau` returning
+   `Build(): Model` (copy an existing builder), with markers `Spawns/PlayerStart`,
+   `Checkpoints/CP_<zone>`, `Objectives/...`, `EnemySpawns/<zone>/...`,
+   `BossArena/BossSpawn` (+ `Ammo_n`, `Pylon_n`...) and gates `Gate_<zone>`. Register it
+   in `WorldConfig.Maps` and add a lighting preset.
 2. Append to `ActivityConfig.List` with `Type`, `Destination`, `RecommendedPower`,
-   player counts, `LootSource`, `Unlock` (the previous mission and/or a power
-   requirement), `Factions`, `Place` (a key in `AssetIds.Places`), `Map`,
-   `Playable = true`, `Rewards`, and an `Objectives` script (Travel / Defeat / Defend /
-   Boss; Carry / Interact / Survive are reserved). Raids and dungeons use
-   `Encounters`, each with its own objectives, `Playable` and a weekly `Milestone`.
-3. Run the tests: the validator and `Maps.spec` catch objectives that point at markers
-   the map doesn't have. Cast optional arrays with `:: { ObjectiveDef }` so the type
+   player counts, `LootSource`, `Unlock`, `Factions`, `Place` (a key in
+   `AssetIds.Places`), `Map`, `Playable = true`, `Rewards`, and `Zones` (each with
+   `Steps`; see section 7). Raids use `Encounters`, each with its own `Zones`,
+   `Playable` and a weekly `Milestone`. Bosses go in `BossConfig`.
+3. Run the tests: the validator and `Maps.spec` (`MapMarkers.Missing`) catch steps
+   that point at markers the map doesn't have. Cast `Zones`/`Steps` tables with
+   `:: { ZoneDef }` / `:: { StepDef }` and write waves with `Wave(...)` so the type
    checker can check each entry.
 
 ### A new enemy
 Append to `EnemyConfig.List` with its faction, tier (Minor/Major/Boss), role, base
 `Health`/`Damage` (at activity power 350), movement and attack stats, an optional
 elemental `Shield`, AI `Behavior`, `Scale`/`Title` for majors and bosses, and for
-bosses a `Mechanics` list. Reference it from objective `Spawns` or a Boss objective by
-`Id`. A rig named after its `Model` field in `ServerStorage.EnemyModels` replaces the
+bosses a `BossConfig` entry (health 15-30 captains). Reference it from waves or a
+Boss step by `Id`. A rig named after its `Model` field in `ServerStorage.EnemyModels` replaces the
 generated one.
 
 ### A new remote

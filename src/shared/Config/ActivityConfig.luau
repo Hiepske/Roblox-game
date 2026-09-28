@@ -7,22 +7,31 @@
 	met (Story = mission id completed, Power = minimum character power).
 	Only activities marked Playable have a map and appear in the Director.
 
-	Objectives are an ordered script ActivityService walks through. Kinds:
-	  Travel    reach the zone marker named Target
-	  Defeat    defeat every enemy spawned from Spawns
-	  Defend    keep a player inside zone Target for Duration seconds while
-	            waves from Spawns arrive every WaveInterval seconds
-	  Carry     bring Item from its spawn to Target            (not built yet)
-	  Interact  use the object named Target                    (not built yet)
-	  Survive   stay alive for Duration seconds of waves       (not built yet)
-	  Boss      defeat Enemy, spawned at marker Target, running the named
-	            Mechanic ("Standard", "ImmuneAdds", "EchoPlates"); adds spawn
-	            at the AddsGroup markers
+	Playable activities are a series of Zones (MissionService). A zone is a
+	stretch of the map with its own name (shown when you get there), a
+	checkpoint (the respawn point from the moment the zone starts), a gate
+	that opens when it is cleared and an ordered list of Steps:
+	  Travel    reach the marker box Target
+	  Waves     fight Waves from the EnemySpawns/<Spawns> markers: the next
+	            wave comes when Advance (0.8) of the current one is down or
+	            after Timer seconds; done when every wave is dead
+	  Defend    keep someone inside Target for Duration seconds while waves
+	            arrive every WaveInterval seconds
+	  Survive   stay alive for Duration seconds of waves
+	  Destroy   destroy Count objects (Enemy, default Shield Generator)
+	            spawned at the markers <Target>_1..n while waves attack
+	  Interact  use the console at Target (a hold-E prompt)
+	  Boss      the boss fight Boss (BossConfig)
+	Wave enemy counts are for one player and grow with the fireteam
+	(CombatConfig.PartyScaling). Enemies arrive through rifts ("Portal"),
+	from a dropship ("Dropship") or silently ("Ambush"), preferring spawn
+	points out of the players' sight.
 
-	Spawns: each entry spawns its Enemies at the map markers named
-	Spawn_<Group>_<n>, optionally Delay seconds after the objective starts.
-	When an objective completes, the respawn checkpoint moves to marker
-	Checkpoint and the part named Door opens.
+	Markers are looked up by name anywhere under the map's Markers folder
+	(see MapKit): Spawns/PlayerStart, Checkpoints/<zone>, Objectives/...,
+	EnemySpawns/<folder>/..., BossArena/...; gates are Gates/Gate_<zone>.
+
+	Objectives (older format) describe activities that aren't built yet.
 
 	Place is a key into AssetIds.Places (the reserved-server place to teleport to).
 ]]
@@ -54,12 +63,48 @@ export type ObjectiveDef = {
 	Door: string?,
 }
 
+export type WaveDef = {
+	-- Enemy id -> count for a solo player.
+	Enemies: { [string]: number },
+	-- "Portal" (default), "Dropship" or "Ambush".
+	Arrival: string?,
+	-- EnemySpawns folder for this wave (default: the step's Spawns).
+	Spawns: string?,
+}
+
+export type StepDef = {
+	Kind: "Travel" | "Waves" | "Defend" | "Survive" | "Destroy" | "Interact" | "Boss",
+	Text: string,
+	Target: string?,
+	-- EnemySpawns folder (default: the zone's Id).
+	Spawns: string?,
+	Waves: { WaveDef }?,
+	Advance: number?,
+	Timer: number?,
+	Duration: number?,
+	WaveInterval: number?,
+	Count: number?,
+	Enemy: string?,
+	Boss: string?,
+}
+
+export type ZoneDef = {
+	Id: string,
+	Name: string,
+	Steps: { StepDef },
+	-- Respawn marker once the zone starts (default Checkpoints/<Id> if the map has it).
+	Checkpoint: string?,
+	-- Opened when the zone is cleared (default Gate_<Id> if the map has it).
+	Gate: string?,
+}
+
 export type EncounterDef = {
 	Id: string,
 	Name: string,
 	RecommendedPower: number,
 	Description: string,
 	Objectives: { ObjectiveDef },
+	Zones: { ZoneDef }?,
 	-- Weekly reward source id (MilestoneConfig) granted on first clear each week.
 	Milestone: string?,
 	-- Encounters without a built map yet are listed but skipped.
@@ -122,6 +167,7 @@ export type ActivityDef = {
 	Place: string,
 	Order: number,
 	Objectives: { ObjectiveDef }?,
+	Zones: { ZoneDef }?,
 	Encounters: { EncounterDef }?,
 	Difficulties: { DifficultyDef }?,
 	PublicEvents: { { Id: string, Name: string, Description: string } }?,
@@ -175,6 +221,12 @@ local Destinations: { [string]: DestinationDef } = {
 	},
 }
 
+-- One wave: enemy id -> count (for a solo player), how it arrives
+-- ("Portal", "Dropship", "Ambush") and an optional EnemySpawns folder.
+local function Wave(enemies: { [string]: number }, arrival: string?, spawns: string?): WaveDef
+	return { Enemies = enemies, Arrival = arrival, Spawns = spawns }
+end
+
 local List: { ActivityDef } = {
 	-- Story campaign -----------------------------------------------------------------
 	{
@@ -194,50 +246,65 @@ local List: { ActivityDef } = {
 		Map = "FirstLight",
 		Playable = true,
 		Rewards = { Drops = { Min = 2, Max = 3 }, Rarities = { Rare = 60, Epic = 40 }, NewWeapon = true },
-		Objectives = {
-			{ Kind = "Travel", Text = "Reach the outpost", Target = "Zone_Outpost", Checkpoint = "Checkpoint_Outpost" },
+		Zones = {
 			{
-				Kind = "Defeat",
-				Text = "Clear the courtyard",
-				Spawns = {
+				Id = "Approach",
+				Name = "The Approach",
+				Checkpoint = "PlayerStart",
+				Steps = { { Kind = "Travel", Text = "Reach the outpost", Target = "Zone_Outpost" } } :: { StepDef },
+			},
+			{
+				Id = "Courtyard",
+				Name = "Outpost Courtyard",
+				Checkpoint = "Checkpoint_Outpost",
+				Gate = "Door_Terminal",
+				Steps = {
 					{
-						Group = "Courtyard",
-						Enemies = { { Id = "RUST_GUNNER", Count = 6 }, { Id = "RUST_SCRAPPER", Count = 4 } },
+						Kind = "Waves",
+						Text = "Clear the courtyard",
+						Spawns = "Courtyard",
+						Waves = {
+							Wave({ RUST_GUNNER = 4, RUST_SCRAPPER = 3 }),
+							Wave({ RUST_GUNNER = 2, RUST_SKIFF_DRONE = 2, RUST_SNIPER = 1 }, "Dropship"),
+							Wave({ RUST_BREAKER = 1, RUST_GUNNER = 1 }, nil, "CourtyardBack"),
+						},
 					},
-					{
-						Group = "CourtyardBack",
-						Delay = 8,
-						Enemies = { { Id = "RUST_BREAKER", Count = 1 }, { Id = "RUST_GUNNER", Count = 1 } },
-					},
-				},
+				} :: { StepDef },
+			},
+			{
+				Id = "Terminal",
+				Name = "Relay Terminal",
 				Checkpoint = "Checkpoint_Terminal",
-				Door = "Door_Terminal",
-			},
-			{
-				Kind = "Defend",
-				Text = "Hack the terminal",
-				Target = "Zone_Terminal",
-				Duration = 20,
-				WaveInterval = 7,
-				MaxAlive = 8,
-				Spawns = {
+				Gate = "Door_Boss",
+				Steps = {
 					{
-						Group = "Terminal",
-						Enemies = { { Id = "RUST_SCRAPPER", Count = 2 }, { Id = "RUST_GUNNER", Count = 2 } },
+						Kind = "Defend",
+						Text = "Hack the terminal",
+						Target = "Zone_Terminal",
+						Duration = 45,
+						Spawns = "Terminal",
+						WaveInterval = 12,
+						Waves = {
+							Wave({ RUST_SCRAPPER = 2, RUST_GUNNER = 2 }),
+							Wave({ RUST_SKIFF_DRONE = 2, RUST_SCRAPPER = 2 }),
+						},
 					},
-				},
-				Checkpoint = "Checkpoint_Boss",
-				Door = "Door_Boss",
+				} :: { StepDef },
 			},
 			{
-				Kind = "Boss",
-				Text = "Defeat the Captain: Vulk, the Scrap Baron",
-				Enemy = "RUST_SCRAP_BARON",
-				Target = "BossSpawn",
-				Mechanic = "Standard",
-				AddsGroup = "BossAdds",
+				Id = "Boss",
+				Name = "The Scrapyard",
+				Checkpoint = "Checkpoint_Boss",
+				Steps = {
+					{
+						Kind = "Boss",
+						Text = "Defeat Orrek, the Scrap Warden",
+						Boss = "SCRAP_WARDEN",
+						Spawns = "BossAdds",
+					},
+				} :: { StepDef },
 			},
-		} :: { ObjectiveDef },
+		} :: { ZoneDef },
 	},
 	{
 		Id = "STORY_02",
@@ -589,71 +656,69 @@ local List: { ActivityDef } = {
 				BonusDrops = 2,
 			},
 		} :: { DifficultyDef },
-		Objectives = {
-			{ Kind = "Travel", Text = "Enter the Hollow Spire", Target = "Zone_Gate", Checkpoint = "Checkpoint_Gate" },
+		Zones = {
 			{
-				Kind = "Defeat",
-				Text = "Clear the Gate Hall",
-				Spawns = {
+				Id = "GateHall",
+				Name = "The Gate Hall",
+				Checkpoint = "PlayerStart",
+				Gate = "Door_1",
+				Steps = {
+					{ Kind = "Travel", Text = "Enter the Hollow Spire", Target = "Zone_Gate" },
 					{
-						Group = "Arena1",
-						Enemies = { { Id = "RUST_GUNNER", Count = 5 }, { Id = "RUST_SCRAPPER", Count = 4 } },
-					},
-					{
-						Group = "Arena1",
-						Delay = 10,
-						Enemies = { { Id = "RUST_BREAKER", Count = 1 }, { Id = "RUST_GUNNER", Count = 2 } },
-					},
-				},
-				Checkpoint = "Checkpoint_Arena2",
-				Door = "Door_1",
-			},
-			{
-				Kind = "Defeat",
-				Text = "Break the Forge Line",
-				Spawns = {
-					{
-						Group = "Arena2",
-						Enemies = {
-							{ Id = "RUST_GUNNER", Count = 6 },
-							{ Id = "RUST_SCRAPPER", Count = 3 },
-							{ Id = "RUST_BREAKER", Count = 1 },
+						Kind = "Waves",
+						Text = "Clear the Gate Hall",
+						Spawns = "Arena1",
+						Waves = {
+							Wave({ RUST_GUNNER = 4, RUST_SCRAPPER = 3 }),
+							Wave({ RUST_BREAKER = 1, RUST_GUNNER = 2, RUST_SNIPER = 1 }),
 						},
 					},
+				} :: { StepDef },
+			},
+			{
+				Id = "ForgeLine",
+				Name = "The Forge Line",
+				Checkpoint = "Checkpoint_Arena2",
+				Gate = "Door_2",
+				Steps = {
 					{
-						Group = "Arena2",
-						Delay = 12,
-						Enemies = { { Id = "RUST_BREAKER", Count = 1 }, { Id = "RUST_SCRAPPER", Count = 4 } },
+						Kind = "Waves",
+						Text = "Break the Forge Line",
+						Spawns = "Arena2",
+						Waves = {
+							Wave({ RUST_GUNNER = 4, RUST_SCRAPPER = 3, RUST_TURRET = 1 }),
+							Wave({ RUST_SKIFF_DRONE = 3, RUST_SNIPER = 1 }, "Dropship"),
+							Wave({ RUST_BREAKER = 1, RUST_SCRAPPER = 3 }),
+						},
 					},
-				},
+				} :: { StepDef },
+			},
+			{
+				Id = "Lift",
+				Name = "The Lift",
 				Checkpoint = "Checkpoint_Arena3",
-				Door = "Door_2",
-			},
-			{
-				Kind = "Defend",
-				Text = "Hold the lift",
-				Target = "Zone_Lift",
-				Duration = 30,
-				WaveInterval = 8,
-				MaxAlive = 10,
-				Spawns = {
+				Gate = "Door_3",
+				Steps = {
 					{
-						Group = "Arena3",
-						Enemies = { { Id = "RUST_SCRAPPER", Count = 3 }, { Id = "RUST_GUNNER", Count = 2 } },
+						Kind = "Defend",
+						Text = "Hold the lift",
+						Target = "Zone_Lift",
+						Duration = 30,
+						Spawns = "Arena3",
+						WaveInterval = 9,
+						Waves = { Wave({ RUST_SCRAPPER = 3, RUST_GUNNER = 2 }) },
 					},
-				},
-				Checkpoint = "Checkpoint_Boss",
-				Door = "Door_3",
+				} :: { StepDef },
 			},
 			{
-				Kind = "Boss",
-				Text = "Defeat Kaldrek, the Rust Tyrant",
-				Enemy = "RUST_KALDREK",
-				Target = "BossSpawn",
-				Mechanic = "ImmuneAdds",
-				AddsGroup = "BossAdds",
+				Id = "Summit",
+				Name = "The Summit",
+				Checkpoint = "Checkpoint_Boss",
+				Steps = {
+					{ Kind = "Boss", Text = "Defeat Kaldrek, the Rust Tyrant", Boss = "KALDREK", Spawns = "BossAdds" },
+				} :: { StepDef },
 			},
-		} :: { ObjectiveDef },
+		} :: { ZoneDef },
 	},
 
 	-- Dungeon --------------------------------------------------------------------------
@@ -725,22 +790,23 @@ local List: { ActivityDef } = {
 				Description = "Harrowmaw is immune until three Keepers stand on the echo plates at once. Then: twenty seconds to hurt it. Don't let the enrage timer run out.",
 				Playable = true,
 				Milestone = "RAID_ENCOUNTER_1",
-				Objectives = {
+				Objectives = {},
+				Zones = {
 					{
-						Kind = "Travel",
-						Text = "Enter the Echo Chamber",
-						Target = "Zone_Chamber",
+						Id = "Chamber",
+						Name = "The Echo Chamber",
 						Checkpoint = "Checkpoint_Chamber",
+						Steps = {
+							{ Kind = "Travel", Text = "Enter the Echo Chamber", Target = "Zone_Chamber" },
+							{
+								Kind = "Boss",
+								Text = "Defeat Harrowmaw, the Echo Engine",
+								Boss = "HARROWMAW",
+								Spawns = "Adds",
+							},
+						} :: { StepDef },
 					},
-					{
-						Kind = "Boss",
-						Text = "Defeat Harrowmaw, the Echo Engine",
-						Enemy = "RUST_ECHO_ENGINE",
-						Target = "BossSpawn",
-						Mechanic = "EchoPlates",
-						AddsGroup = "Adds",
-					},
-				},
+				} :: { ZoneDef },
 			},
 			{
 				Id = "HALL_OF_MIRRORS",

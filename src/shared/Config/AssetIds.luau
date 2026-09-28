@@ -44,6 +44,13 @@ local AssetIds = {
 			AmmoPickup = 0,
 			Death = 0,
 			Revive = 0,
+			-- Missions: enemy rifts, dropship flyby, gates, boss attacks and death.
+			Portal = 0,
+			Dropship = 0,
+			GateOpen = 0,
+			SniperCharge = 0,
+			BossSlam = 0,
+			BossDeath = 0,
 		},
 		UI = {
 			Click = 0,

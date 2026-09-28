@@ -641,7 +641,7 @@ end
 
 -- Tiles ----------------------------------------------------------------------------------------
 
-local function select(uid: string?)
+local function selectItem(uid: string?)
 	state.Selected = uid
 	showDetail(uid)
 end
@@ -743,7 +743,7 @@ local function tile(item: ItemInstance, size: number, parent: Instance, order: n
 	end)
 	button.Activated:Connect(function()
 		if state.LastInput == "Touch" then
-			select(item.Uid)
+			selectItem(item.Uid)
 		else
 			state.Selected = item.Uid
 			primaryAction(item)

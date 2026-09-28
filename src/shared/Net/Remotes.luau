@@ -71,6 +71,9 @@ local Definitions: { [string]: RemoteDef } = {
 	-- Server -> everyone: (kind, ...) explosions, lightning arcs, singularities,
 	-- sword slashes, spawn portals, boss telegraphs
 	WorldEffect = { Kind = "Unreliable", Direction = "ToClient" },
+	-- Server -> players in a run: (kind, ...) gameplay cues that must arrive:
+	-- spawn rifts, dropships, boss telegraphs and safe zones, gates, boss death
+	WorldCue = { Kind = "Event", Direction = "ToClient" },
 	-- Server -> owner: alive/dead, respawn timer, revive state
 	PlayerStatus = { Kind = "Event", Direction = "ToClient" },
 

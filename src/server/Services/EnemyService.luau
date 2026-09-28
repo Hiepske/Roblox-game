@@ -12,6 +12,10 @@
 	          dodgeable projectiles, melee enemies wind up and swing
 	  Cover   ranged enemies that get hurt below half health dash to a spot
 	          the target can't see, then come back out
+	Roles with their own brains: Flying drones circle and strafe their target
+	(moved every frame), Snipers paint you with a red laser before a
+	high-damage shot, Turrets swivel and fire bursts, Objects (generators,
+	pylons) do nothing but soak damage.
 	Targets are players in the same activity instance (player attribute
 	"InstanceId", nil in the hub).
 
@@ -84,8 +88,23 @@ export type Enemy = {
 	PathGoal: Vector3?,
 	PathComputing: boolean,
 	NextPathAt: number,
+	-- Boss scripts pause the AI (special attacks, teleports) until this os.clock().
+	BusyUntil: number,
+	-- Damage can't take health below this (boss immune-phase thresholds; 0 = off).
+	HealthFloor: number,
+	-- "Humanoid" | "Drone" | "Turret" | "Object" (EnemyRigs)
+	Rig: string,
+	-- Drones: where they're flying to, and which way they circle.
+	FlyGoal: Vector3?,
+	OrbitAngle: number,
+	OrbitDirection: number,
+	-- Snipers: the laser (dot part at the aim point) while winding up.
+	Laser: { Dot: BasePart, Beam: Beam, Aim: Vector3, LockAt: number, FireAt: number }?,
+	-- Turrets: bolts left in the current burst.
+	BurstLeft: number,
 	-- Visuals
 	Bar: { Gui: BillboardGui, Health: Frame, Shield: Frame, Label: TextLabel? }?,
+	Bubble: BasePart?,
 	Tracks: { Idle: AnimationTrack?, Walk: AnimationTrack? },
 }
 
@@ -363,7 +382,9 @@ function EnemyService.Spawn(defId: string, cframe: CFrame, options: SpawnOptions
 	local rootAboveFeet = root.Position.Y - (boxCFrame.Position.Y - boxSize.Y / 2)
 	local ground = groundAt(cframe.Position) or cframe.Position
 	local look = flat(cframe.LookVector)
-	local position = Vector3.new(cframe.Position.X, ground.Y + rootAboveFeet + 0.2, cframe.Position.Z)
+	local rig = tostring(model:GetAttribute("Rig") or "Humanoid")
+	local lift = if rig == "Drone" then CombatConfig.Enemies.DroneHover else 0
+	local position = Vector3.new(cframe.Position.X, ground.Y + rootAboveFeet + 0.2 + lift, cframe.Position.Z)
 	model:PivotTo(if look.Magnitude > 0.01 then CFrame.lookAt(position, position + look) else CFrame.new(position))
 
 	local healthScale = opts.HealthScale or 1
@@ -418,13 +439,22 @@ function EnemyService.Spawn(defId: string, cframe: CFrame, options: SpawnOptions
 		PathGoal = nil,
 		PathComputing = false,
 		NextPathAt = 0,
+		BusyUntil = 0,
+		HealthFloor = 0,
+		Rig = rig,
+		FlyGoal = nil,
+		OrbitAngle = rng:NextNumber() * math.pi * 2,
+		OrbitDirection = if rng:NextNumber() < 0.5 then -1 else 1,
+		Laser = nil,
+		BurstLeft = 0,
 		Bar = nil,
+		Bubble = nil,
 		Tracks = {},
 	}
 
 	humanoid.WalkSpeed = def.MoveSpeed
-	humanoid.AutoRotate = def.MoveSpeed > 0
-	if def.Dummy or def.MoveSpeed <= 0 then
+	humanoid.AutoRotate = def.MoveSpeed > 0 and rig == "Humanoid"
+	if def.Dummy or def.MoveSpeed <= 0 or rig ~= "Humanoid" then
 		root.Anchored = true
 	end
 	model.Parent = WorldService.Folder("Enemies")
@@ -438,7 +468,9 @@ function EnemyService.Spawn(defId: string, cframe: CFrame, options: SpawnOptions
 	byModel[model] = enemy
 	createBar(enemy)
 	updateBar(enemy)
-	setupAnimations(enemy)
+	if rig == "Humanoid" then
+		setupAnimations(enemy)
+	end
 	return enemy
 end
 
@@ -461,8 +493,21 @@ function EnemyService.IsPrecisionPart(enemy: Enemy, part: Instance): boolean
 	return part == enemy.Head or part.Name == "Eye" or part.Name == "Helmet" or part.Name == "Crown"
 end
 
+local function clearLaser(enemy: Enemy)
+	local laser = enemy.Laser
+	if laser then
+		laser.Dot:Destroy()
+		enemy.Laser = nil
+	end
+end
+
 local function dissolve(enemy: Enemy)
 	local palette = EnemyRigs.PaletteFor(enemy.Def)
+	clearLaser(enemy)
+	if enemy.Bubble then
+		enemy.Bubble:Destroy()
+		enemy.Bubble = nil
+	end
 	enemy.Humanoid.Health = 0
 	if enemy.Bar then
 		enemy.Bar.Gui:Destroy()
@@ -517,7 +562,7 @@ function EnemyService.ApplyDamage(enemy: Enemy, amount: number, info: DamageInfo
 		info.MatchGame == true
 	)
 	enemy.Shield = result.Shield
-	enemy.Health = result.Health
+	enemy.Health = if enemy.HealthFloor > 0 then math.max(enemy.HealthFloor, result.Health) else result.Health
 	enemy.LastDamagedAt = os.clock()
 	if info.Attacker and enemy.Target == nil and enemy.InstanceId == info.Attacker:GetAttribute("InstanceId") then
 		enemy.Target = info.Attacker
@@ -550,9 +595,132 @@ function EnemyService.ApplyDamage(enemy: Enemy, amount: number, info: DamageInfo
 	}
 end
 
+-- Immune enemies take no damage. Bosses also show a shield bubble.
 function EnemyService.SetImmune(enemy: Enemy, immune: boolean)
 	enemy.Immune = immune
 	updateBar(enemy)
+	if not enemy.IsBoss or enemy.Dead then
+		return
+	end
+	if immune and enemy.Bubble == nil then
+		local _, size = enemy.Model:GetBoundingBox()
+		local diameter = math.max(size.X, size.Y, size.Z) * 1.3
+		local bubble = Instance.new("Part")
+		bubble.Name = "ImmuneBubble"
+		bubble.Shape = Enum.PartType.Ball
+		bubble.Size = Vector3.new(diameter, diameter, diameter)
+		bubble.Material = Enum.Material.ForceField
+		bubble.Color = EnemyRigs.PaletteFor(enemy.Def).Accent
+		bubble.CanCollide = false
+		bubble.CanQuery = false
+		bubble.CanTouch = false
+		bubble.Massless = true
+		bubble.CastShadow = false
+		bubble.CFrame = enemy.Root.CFrame
+		local weld = Instance.new("WeldConstraint")
+		weld.Part0 = enemy.Root
+		weld.Part1 = bubble
+		weld.Parent = bubble
+		bubble.Parent = enemy.Model
+		enemy.Bubble = bubble
+	elseif not immune and enemy.Bubble then
+		enemy.Bubble:Destroy()
+		enemy.Bubble = nil
+	end
+end
+
+-- Pauses the AI (movement and normal attacks) for `seconds` (boss scripts).
+function EnemyService.SetBusy(enemy: Enemy, seconds: number)
+	enemy.BusyUntil = os.clock() + seconds
+	enemy.WindupUntil = nil
+	clearLaser(enemy)
+	if enemy.Def.MoveSpeed > 0 and enemy.Rig == "Humanoid" then
+		enemy.Humanoid:MoveTo(enemy.Root.Position)
+	end
+end
+
+-- Damage can't take the enemy's health below `floor` (0 turns it off).
+function EnemyService.SetHealthFloor(enemy: Enemy, floor: number)
+	enemy.HealthFloor = math.max(0, floor)
+end
+
+-- Jumps in an arc onto `landing` (a ground point) over `duration` seconds. Yields.
+function EnemyService.Leap(enemy: Enemy, landing: Vector3, duration: number)
+	if enemy.Dead then
+		return
+	end
+	local root = enemy.Root
+	local start = root.Position
+	local ground = groundAt(start)
+	local rise = if ground then start.Y - ground.Y else 3
+	local finish = landing + Vector3.new(0, rise, 0)
+	local look = flat(finish - start)
+	local wasAnchored = root.Anchored
+	root.Anchored = true
+	enemy.Path = nil
+	local steps = math.max(4, math.floor(duration / 0.05))
+	for step = 1, steps do
+		if enemy.Dead then
+			return
+		end
+		local t = step / steps
+		local position = start:Lerp(finish, t) + Vector3.new(0, math.sin(t * math.pi) * 16, 0)
+		enemy.Model:PivotTo(
+			if look.Magnitude > 0.1 then CFrame.lookAt(position, position + look) else CFrame.new(position)
+		)
+		task.wait(duration / steps)
+	end
+	root.Anchored = wasAnchored
+end
+
+-- Moves an enemy instantly (teleports, boss leaps).
+function EnemyService.Relocate(enemy: Enemy, cframe: CFrame)
+	if enemy.Dead then
+		return
+	end
+	enemy.Path = nil
+	enemy.FlyGoal = nil
+	enemy.Model:PivotTo(cframe)
+end
+
+export type VolleySpec = {
+	-- Where each bolt is aimed.
+	Targets: { Vector3 },
+	Damage: number,
+	Speed: number?,
+	-- Degrees of random spread per bolt.
+	Spread: number?,
+	Style: string?,
+}
+
+-- Fires one bolt at each target position from the enemy's head.
+function EnemyService.FireVolley(enemy: Enemy, spec: VolleySpec)
+	if enemy.Dead then
+		return
+	end
+	local def = enemy.Def
+	local origin = enemy.Head.Position
+	local speed = spec.Speed or (if def.Projectile then def.Projectile.Speed else 90)
+	local palette = EnemyRigs.PaletteFor(def)
+	for _, target in spec.Targets do
+		local direction = spreadDirection((target - origin).Unit, spec.Spread or 0)
+		ProjectileService.Spawn({
+			Origin = origin,
+			Velocity = direction * speed,
+			MaxDistance = math.max(200, (target - origin).Magnitude * 1.5),
+			Style = spec.Style or "BossOrb",
+			Color = palette.Accent,
+			Exclude = { WorldService.Folder("Enemies"), WorldService.Folder("Pickups") },
+			OnHit = function(result: RaycastResult?)
+				if result then
+					local player = EnemyService.PlayerFromPart(result.Instance)
+					if player then
+						CharacterService.DamagePlayer(player, spec.Damage, def.Name)
+					end
+				end
+			end,
+		})
+	end
 end
 
 function EnemyService.SetEnraged(enemy: Enemy, enraged: boolean)
@@ -838,11 +1006,171 @@ local function thinkMelee(
 	navigate(enemy, targetRoot.Position, canSee, now)
 end
 
+-- Drones: circle the target at PreferredRange, hovering above it, and strafe it.
+local function thinkDrone(enemy: Enemy, targetRoot: BasePart, distance: number, canSee: boolean, now: number)
+	local def = enemy.Def
+	enemy.OrbitAngle += enemy.OrbitDirection * 0.35
+	local radius = def.Behavior.PreferredRange
+	local hover = CombatConfig.Enemies.DroneHover
+	local center = targetRoot.Position
+	local goal = center + Vector3.new(math.cos(enemy.OrbitAngle) * radius, hover, math.sin(enemy.OrbitAngle) * radius)
+	-- Don't fly into walls: if the way is blocked, climb instead.
+	local here = enemy.Root.Position
+	local blocked = Workspace:Raycast(here, goal - here, losParams)
+	if blocked and blocked.Instance.CanCollide then
+		enemy.OrbitDirection = -enemy.OrbitDirection
+		goal = here + Vector3.new(0, 6, 0)
+	end
+	enemy.FlyGoal = goal
+	if canSee and distance <= def.AttackRange and now >= enemy.NextAttack then
+		enemy.State = "Attack"
+		fire(enemy, targetRoot)
+		enemy.NextAttack = now + def.AttackCooldown * (0.8 + rng:NextNumber() * 0.5)
+	else
+		enemy.State = "Chase"
+	end
+end
+
+-- Drones glide toward their goal every frame (they're anchored).
+local function flyStep(enemy: Enemy, dt: number)
+	local goal = enemy.FlyGoal
+	local root = enemy.Root
+	local here = root.Position
+	local target = enemy.Target
+	local targetRoot = if target then characterRoot(target) else nil
+	local lookAt = if targetRoot then targetRoot.Position else here + root.CFrame.LookVector
+	local bob = Vector3.new(0, math.sin(os.clock() * 2 + enemy.Id) * 0.04, 0)
+	local nextPosition = here + bob
+	if goal then
+		local offset = goal - here
+		local step = enemy.Def.MoveSpeed * dt
+		nextPosition = if offset.Magnitude <= step then goal else here + offset.Unit * step
+	end
+	local flatLook = flat(lookAt - nextPosition)
+	if flatLook.Magnitude < 0.1 then
+		flatLook = flat(root.CFrame.LookVector)
+	end
+	root.CFrame = CFrame.lookAt(nextPosition, nextPosition + flatLook)
+end
+
+-- Snipers: a red laser tracks the target, locks for a moment, then fires.
+local function thinkSniper(enemy: Enemy, targetRoot: BasePart, distance: number, canSee: boolean, now: number)
+	local def = enemy.Def
+	local tuning = CombatConfig.Enemies
+	local laser = enemy.Laser
+	if laser then
+		enemy.State = "Attack"
+		face(enemy, laser.Aim)
+		if now < laser.LockAt then
+			if canSee then
+				laser.Aim = targetRoot.Position + Vector3.new(0, 0.8, 0)
+			elseif now - enemy.LastSeen > 0.6 then
+				clearLaser(enemy)
+				return
+			end
+		else
+			laser.Beam.Width0 = 0.3
+			laser.Beam.Width1 = 0.3
+		end
+		laser.Dot.CFrame = CFrame.new(laser.Aim)
+		if now >= laser.FireAt then
+			local aim = laser.Aim
+			clearLaser(enemy)
+			EnemyService.FireVolley(enemy, {
+				Targets = { aim + (aim - enemy.Head.Position).Unit * 4 },
+				Damage = def.Damage * enemy.DamageScale,
+				Speed = if def.Projectile then def.Projectile.Speed else 600,
+				Style = "EnemyBolt",
+			})
+			enemy.NextAttack = now + def.AttackCooldown * (0.9 + rng:NextNumber() * 0.3)
+		end
+		return
+	end
+	if canSee and distance <= def.AttackRange then
+		enemy.State = "Attack"
+		enemy.Humanoid.AutoRotate = false
+		stop(enemy)
+		face(enemy, targetRoot.Position)
+		if now >= enemy.NextAttack then
+			local aim = targetRoot.Position + Vector3.new(0, 0.8, 0)
+			local dot = Instance.new("Part")
+			dot.Name = "LaserDot"
+			dot.Shape = Enum.PartType.Ball
+			dot.Size = Vector3.new(0.5, 0.5, 0.5)
+			dot.Color = Color3.fromRGB(255, 30, 30)
+			dot.Material = Enum.Material.Neon
+			dot.Anchored = true
+			dot.CanCollide = false
+			dot.CanQuery = false
+			dot.CanTouch = false
+			dot.CastShadow = false
+			dot.CFrame = CFrame.new(aim)
+			local a0 = Instance.new("Attachment")
+			a0.Name = "LaserOrigin"
+			a0.Parent = enemy.Head
+			local a1 = Instance.new("Attachment")
+			a1.Parent = dot
+			local beam = Instance.new("Beam")
+			beam.Attachment0 = a0
+			beam.Attachment1 = a1
+			beam.Color = ColorSequence.new(Color3.fromRGB(255, 40, 40))
+			beam.LightEmission = 1
+			beam.LightInfluence = 0
+			beam.Width0 = 0.12
+			beam.Width1 = 0.12
+			beam.FaceCamera = true
+			beam.Transparency = NumberSequence.new(0.15)
+			beam.Parent = dot
+			dot.Parent = WorldService.Folder("Enemies")
+			dot.Destroying:Connect(function()
+				a0:Destroy()
+			end)
+			enemy.Laser = {
+				Dot = dot :: BasePart,
+				Beam = beam,
+				Aim = aim,
+				LockAt = now + tuning.SniperWindup - tuning.SniperLock,
+				FireAt = now + tuning.SniperWindup,
+			}
+		end
+	else
+		enemy.State = "Chase"
+		enemy.Humanoid.AutoRotate = true
+		navigate(enemy, targetRoot.Position, canSee, now)
+	end
+end
+
+-- Turrets: swivel toward the target and fire bursts.
+local function thinkTurret(enemy: Enemy, targetRoot: BasePart, distance: number, canSee: boolean, now: number)
+	local def = enemy.Def
+	face(enemy, targetRoot.Position)
+	if not canSee or distance > def.AttackRange then
+		enemy.State = "Alert"
+		enemy.BurstLeft = 0
+		return
+	end
+	enemy.State = "Attack"
+	if now < enemy.NextAttack then
+		return
+	end
+	if enemy.BurstLeft <= 0 then
+		enemy.BurstLeft = CombatConfig.Enemies.TurretBurst
+	end
+	fire(enemy, targetRoot)
+	enemy.BurstLeft -= 1
+	enemy.NextAttack = if enemy.BurstLeft > 0 then now + 0.13 else now + def.AttackCooldown
+end
+
 local function think(enemy: Enemy, now: number)
+	if now < enemy.BusyUntil then
+		return
+	end
 	local target, targetRoot = acquireTarget(enemy, now)
 	if target == nil or targetRoot == nil then
 		if enemy.State ~= "Idle" then
 			enemy.State = "Idle"
+			clearLaser(enemy)
+			enemy.FlyGoal = nil
 			stop(enemy)
 		end
 		return
@@ -864,6 +1192,18 @@ local function think(enemy: Enemy, now: number)
 			return
 		end
 		enemy.State = "Chase"
+	end
+
+	local role = enemy.Def.Role
+	if enemy.Rig == "Drone" then
+		thinkDrone(enemy, targetRoot, distance, canSee, now)
+		return
+	elseif role == "Turret" then
+		thinkTurret(enemy, targetRoot, distance, canSee, now)
+		return
+	elseif role == "Sniper" and enemy.Laser then
+		thinkSniper(enemy, targetRoot, distance, canSee, now)
+		return
 	end
 
 	if enemy.State == "Cover" then
@@ -893,6 +1233,8 @@ local function think(enemy: Enemy, now: number)
 
 	if def.Role == "Melee" then
 		thinkMelee(enemy, target, targetRoot, distance, canSee, now)
+	elseif def.Role == "Sniper" then
+		thinkSniper(enemy, targetRoot, distance, canSee, now)
 	else
 		thinkRanged(enemy, targetRoot, distance, canSee, now)
 	end
@@ -917,10 +1259,15 @@ function EnemyService.Start()
 	end
 
 	local interval = CombatConfig.Enemies.TickInterval
-	RunService.Heartbeat:Connect(function()
+	RunService.Heartbeat:Connect(function(dt: number)
 		local now = os.clock()
 		for _, enemy in enemies do
-			if enemy.Def.Dummy then
+			if enemy.Rig == "Drone" and not enemy.Dead and now >= enemy.BusyUntil then
+				flyStep(enemy, dt)
+			end
+			if enemy.Def.Role == "Object" then
+				continue
+			elseif enemy.Def.Dummy then
 				if
 					(enemy.Health < enemy.MaxHealth or enemy.Shield < enemy.MaxShield)
 					and now - enemy.LastDamagedAt > CombatConfig.Enemies.DummyRegenDelay

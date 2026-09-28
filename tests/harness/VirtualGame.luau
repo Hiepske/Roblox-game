@@ -286,9 +286,10 @@ function VirtualGame.RunFile(path, extra)
 	loadChunk(fs.readFile(path), path, env)()
 end
 
--- Clears the module cache so each spec file starts fresh.
+-- Clears the module cache and mocked globals so each spec file starts fresh.
 function VirtualGame.ResetModules()
 	table.clear(cache)
+	table.clear(extraGlobals)
 end
 
 return VirtualGame

@@ -74,6 +74,14 @@ local CombatConfig = {
 		EnragedCooldownScale = 0.7,
 		-- Seconds a shot-at dummy waits before healing back to full.
 		DummyRegenDelay = 3,
+		-- Snipers: the red laser tracks you this long, then locks in place for
+		-- SniperLock seconds before the shot (step out of it!).
+		SniperWindup = 1.8,
+		SniperLock = 0.35,
+		-- Drones hover this high above the ground near their target.
+		DroneHover = 12,
+		-- Turrets fire bursts of this many bolts.
+		TurretBurst = 5,
 	},
 
 	Ammo = {
@@ -81,9 +89,45 @@ local CombatConfig = {
 		PickupRadius = 7,
 	},
 
-	-- Enemy health grows with fireteam size (outside the raid).
+	-- Every activity scales with fireteam size: each player beyond the first
+	-- adds these fractions (so 3 players = 1 + 2 x value).
 	PartyScaling = {
-		HealthPerExtraPlayer = 0.5,
+		-- Wave sizes.
+		CountPerExtraPlayer = 0.35,
+		-- Health of regular enemies.
+		HealthPerExtraPlayer = 0.25,
+		-- Health of bosses.
+		BossHealthPerExtraPlayer = 0.6,
+	},
+
+	-- Zone flow (MissionService).
+	Missions = {
+		-- The next wave arrives when this fraction of the current one is down...
+		Advance = 0.8,
+		-- ...or after this many seconds, whichever comes first.
+		WaveTimer = 45,
+		-- Waves wait while this many enemies are already alive in the run.
+		MaxAlive = 16,
+		-- Seconds between a rift opening and the enemy stepping out of it.
+		PortalDelay = 1.1,
+		-- Seconds for a dropship to arrive overhead and drop its wave.
+		DropshipDelay = 3,
+		-- Spawn points closer than this to a player are used only as a last resort.
+		SpawnMinDistance = 24,
+		-- Defend/Survive/Destroy/Interact steps: seconds between waves.
+		WaveInterval = 12,
+	},
+
+	-- Boss fights (BossConfig, BossFight).
+	Boss = {
+		-- Heavy ammo boxes dropped in the arena last this long.
+		ArenaAmmoLifetime = 40,
+		-- Slam and Nova only hit players within this height of the circle.
+		HitHeight = 10,
+		-- Seconds the collapsing floor flashes before it falls.
+		CollapseWarning = 3,
+		-- Enemies alive in the arena before periodic adds stop.
+		MaxAlive = 10,
 	},
 
 	-- Nightfall score: points per kill by tier, plus a time bonus on completion.
@@ -97,9 +141,6 @@ local CombatConfig = {
 
 	-- Vault of Echoes, encounter 1.
 	Raid = {
-		-- The encounter is tuned for this many players; boss health scales with
-		-- the real fireteam size (never below 1/6th).
-		DesignPlayers = 6,
 		PlateChargeSeconds = 3, -- all three plates held at once
 		SoloPlateHoldSeconds = 5, -- fewer than 3 players: any one plate
 		DamagePhaseSeconds = 20,

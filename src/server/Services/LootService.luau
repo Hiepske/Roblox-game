@@ -266,7 +266,7 @@ end
 
 -- Enemy drops ---------------------------------------------------------------------------
 
-local function makeBox(position: Vector3, instanceId: string?, ammoType: string, fraction: number)
+local function makeBox(position: Vector3, instanceId: string?, ammoType: string, fraction: number, lifetime: number?)
 	local look = AMMO_LOOK[ammoType] or AMMO_LOOK.Heavy
 	local part = Instance.new("Part")
 	part.Name = `{ammoType}Ammo`
@@ -302,16 +302,16 @@ local function makeBox(position: Vector3, instanceId: string?, ammoType: string,
 	table.insert(boxes, {
 		Part = part :: BasePart,
 		InstanceId = instanceId,
-		ExpiresAt = os.clock() + CombatConfig.Ammo.BoxLifetime,
+		ExpiresAt = os.clock() + (lifetime or CombatConfig.Ammo.BoxLifetime),
 		AmmoType = ammoType,
 		Fraction = fraction,
 	})
 end
 
 -- Drops an ammo box ("Special" green or "Heavy" purple) at `position`.
-function LootService.DropAmmo(position: Vector3, instanceId: string?, ammoType: string)
+function LootService.DropAmmo(position: Vector3, instanceId: string?, ammoType: string, lifetime: number?)
 	local fraction = (LootConfig.AmmoBrickFraction :: any)[ammoType] or 0.25
-	makeBox(position, instanceId, ammoType, fraction)
+	makeBox(position, instanceId, ammoType, fraction, lifetime)
 end
 
 function LootService.DropHeavyAmmo(position: Vector3, instanceId: string?)

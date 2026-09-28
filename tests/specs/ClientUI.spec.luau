@@ -173,6 +173,7 @@ local HudController = require(Controllers.HudController)
 local DirectorController = require(Controllers.DirectorController)
 local InventoryController = require(Controllers.InventoryController)
 local LootController = require(Controllers.LootController)
+local CueController = require(Controllers.CueController)
 local ItemRoller = require(Shared.Items.ItemRoller)
 
 local counter = 0
@@ -217,6 +218,7 @@ describe("Client screens", function()
 				DirectorController,
 				InventoryController,
 				LootController,
+				CueController,
 			}
 		do
 			controller.Init()
@@ -229,6 +231,7 @@ describe("Client screens", function()
 				DirectorController,
 				InventoryController,
 				LootController,
+				CueController,
 			}
 		do
 			controller.Start()
@@ -303,6 +306,17 @@ describe("Client screens", function()
 			runFolder:SetAttribute(name, value)
 		end
 		frame()
+		runFolder:SetAttribute("BossThresholds", "0.66,0.33")
+		runFolder:SetAttribute("ZoneLog", "The Approach=42;Outpost Courtyard=131")
+		runFolder:SetAttribute("ZoneName", "Relay Terminal")
+		runFolder:SetAttribute("ZoneStartedAt", 990)
+		runFolder:SetAttribute("ZoneIndex", 3)
+		runFolder:SetAttribute("ZoneCount", 4)
+		frame()
+		local debug = guiNamed("HUD"):FindFirstChild("ZoneDebug", true)
+		expect(debug.Visible).toBe(true)
+		expect(string.find(debug.Text, "Outpost Courtyard  2:11", 1, true) ~= nil).toBe(true)
+		expect(string.find(debug.Text, "Relay Terminal  0:10", 1, true) ~= nil).toBe(true)
 		runFolder:SetAttribute("Status", "Complete")
 		runFolder:SetAttribute("ReturnAt", 1012)
 		frame()
@@ -310,6 +324,33 @@ describe("Client screens", function()
 		frame()
 		expect(UIState.IsDead()).toBe(true)
 		emit("PlayerStatus", { Alive = true })
+		frame()
+	end)
+
+	it("draws every mission cue without errors", function()
+		local at = roblox.Vector3.new(5, 0, 5)
+		for _, cue in
+			{
+				{ "Portal", at, 1 },
+				{ "Dropship", at, 3 },
+				{ "Telegraph", at, 14, 1.5 },
+				{ "Shockwave", at, 14 },
+				{ "SafeZone", at, 10, 6 },
+				{ "Nova", at },
+				{ "Charge", at, 1 },
+				{ "Blink", at },
+				{ "ShieldUp", at },
+				{ "ShieldBreak", at },
+				{ "GateOpen", at, "Door" },
+				{ "Collapse", at, 3 },
+				{ "BossIntro", at, "Orrek", "Warden" },
+				{ "BossDeath", at, "Orrek" },
+				{ "ChestDrop", at },
+				{ "AmmoDrop", at },
+			}
+		do
+			emit("WorldCue", table.unpack(cue))
+		end
 		frame()
 	end)
 

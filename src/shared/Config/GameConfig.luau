@@ -88,8 +88,9 @@ local GameConfig = {
 		-- Map copies are placed at X = InstanceSpacing * slot.
 		InstanceSpacing = 5000,
 		MaxInstances = 8,
-		-- Seconds on the loot screen before everyone returns to the hub.
-		ReturnToHubDelay = 12,
+		-- Seconds after the last zone before everyone returns to the hub (the
+		-- loot chest can be opened until then; unopened rewards are sent anyway).
+		ReturnToHubDelay = 30,
 	},
 
 	Debug = {
